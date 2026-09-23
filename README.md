@@ -50,7 +50,7 @@ pip install pycocotools opencv-python tqdm
 
 ## Model
 
-Download the pretrained weights from the [Releases](https://github.com/Zitherstring/mori/releases) page and place the file at `checkpoint/Mori_seg.pth`.
+Download the pretrained weights from [Google Drive](<LINK>) and place the file at `checkpoint/Mori_seg.pth`.
 
 ## Training
 
