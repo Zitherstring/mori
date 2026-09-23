@@ -1,0 +1,219 @@
+{
+  "_meta": {
+    "default_category_space": "kc_test_mixed_11",
+    "description": "Category-space definitions shared by inference, postprocess and evaluation"
+  },
+  "spaces": {
+    "kc_train_13": {
+      "aliases": [
+        "kc13",
+        "train13"
+      ],
+      "categories": [
+        "0_2_podocyte",
+        "1_2_mesangial",
+        "1_6_2_mv",
+        "2_2_endo",
+        "2_4_2_smooth",
+        "2_5_2_vesselendo",
+        "3_2_pecs",
+        "cap",
+        "dt",
+        "pt",
+        "ptc",
+        "tuft",
+        "ves"
+      ],
+      "category_remap": {
+        "0_2_podocyte": "0_2_podocyte",
+        "1_2_mesangial": "1_2_mesangial",
+        "1_6_2_mv": "1_6_2_mv",
+        "2_2_endo": "2_2_endo",
+        "2_4_2_smooth": "2_4_2_smooth",
+        "2_5_2_vesselendo": "2_5_2_vesselendo",
+        "3_2_pecs": "3_2_pecs",
+        "cap": "cap",
+        "dt": "dt",
+        "pt": "pt",
+        "ptc": "ptc",
+        "tuft": "tuft",
+        "ves": "ves"
+      },
+      "magnification_allowed": {
+        "all": [
+          "0_2_podocyte",
+          "1_2_mesangial",
+          "1_6_2_mv",
+          "2_2_endo",
+          "2_4_2_smooth",
+          "2_5_2_vesselendo",
+          "3_2_pecs",
+          "cap",
+          "dt",
+          "pt",
+          "ptc",
+          "tuft",
+          "ves"
+        ]
+      },
+      "drop_categories": []
+    },
+    "ki_train_6": {
+      "aliases": [
+        "ki6",
+        "train6"
+      ],
+      "categories": [
+        "cap",
+        "dt",
+        "pt",
+        "ptc",
+        "tuft",
+        "ves"
+      ],
+      "category_remap": {
+        "cap": "cap",
+        "dt": "dt",
+        "pt": "pt",
+        "ptc": "ptc",
+        "tuft": "tuft",
+        "ves": "ves"
+      },
+      "magnification_allowed": {
+        "all": [
+          "cap",
+          "dt",
+          "pt",
+          "ptc",
+          "tuft",
+          "ves"
+        ]
+      },
+      "drop_categories": []
+    },
+    "kpmp_test_core4": {
+      "aliases": [
+        "core4",
+        "kpmp_core4",
+        "test_core4"
+      ],
+      "categories": [
+        "arteries_arterioles",
+        "non-globally-sclerotic_glomeruli",
+        "peritubular-capillaries",
+        "tubules"
+      ],
+      "category_remap": {
+        "arteries_arterioles": "arteries_arterioles",
+        "non-globally-sclerotic_glomeruli": "non-globally-sclerotic_glomeruli",
+        "peritubular-capillaries": "peritubular-capillaries",
+        "tubules": "tubules",
+        "cap": "non-globally-sclerotic_glomeruli",
+        "pt": "tubules",
+        "ptc": "peritubular-capillaries",
+        "ves": "arteries_arterioles",
+        "dt": "tubules",
+        "tuft": null
+      },
+      "magnification_allowed": {
+        "10x": [
+          "arteries_arterioles",
+          "non-globally-sclerotic_glomeruli",
+          "tubules"
+        ],
+        "40x": [
+          "peritubular-capillaries"
+        ],
+        "unknown": [
+          "arteries_arterioles",
+          "non-globally-sclerotic_glomeruli",
+          "peritubular-capillaries",
+          "tubules"
+        ]
+      },
+      "drop_categories": [
+        "tuft"
+      ]
+    },
+    "kc_test_mixed_11": {
+      "aliases": [
+        "kc_test_mixed",
+        "kpmp_test_mixed",
+        "mixed11",
+        "test_mixed_11"
+      ],
+      "categories": [
+        "0_2_podocyte",
+        "1_2_mesangial",
+        "1_6_2_mv",
+        "2_2_endo",
+        "2_4_2_smooth",
+        "2_5_2_vesselendo",
+        "3_2_pecs",
+        "arteries_arterioles",
+        "non-globally-sclerotic_glomeruli",
+        "peritubular-capillaries",
+        "tubules"
+      ],
+      "category_remap": {
+        "0_2_podocyte": "0_2_podocyte",
+        "1_2_mesangial": "1_2_mesangial",
+        "1_6_2_mv": "1_6_2_mv",
+        "2_2_endo": "2_2_endo",
+        "2_4_2_smooth": "2_4_2_smooth",
+        "2_5_2_vesselendo": "2_5_2_vesselendo",
+        "3_2_pecs": "3_2_pecs",
+        "arteries_arterioles": "arteries_arterioles",
+        "non-globally-sclerotic_glomeruli": "non-globally-sclerotic_glomeruli",
+        "peritubular-capillaries": "peritubular-capillaries",
+        "tubules": "tubules",
+        "cap": "non-globally-sclerotic_glomeruli",
+        "pt": "tubules",
+        "ptc": "peritubular-capillaries",
+        "ves": "arteries_arterioles",
+        "dt": "tubules",
+        "tuft": null
+      },
+      "magnification_allowed": {
+        "10x": [
+          "0_2_podocyte",
+          "1_2_mesangial",
+          "1_6_2_mv",
+          "2_2_endo",
+          "2_4_2_smooth",
+          "2_5_2_vesselendo",
+          "3_2_pecs",
+          "arteries_arterioles",
+          "non-globally-sclerotic_glomeruli",
+          "tubules"
+        ],
+        "40x": [
+          "0_2_podocyte",
+          "1_2_mesangial",
+          "1_6_2_mv",
+          "2_2_endo",
+          "2_4_2_smooth",
+          "2_5_2_vesselendo",
+          "3_2_pecs",
+          "peritubular-capillaries"
+        ],
+        "unknown": [
+          "0_2_podocyte",
+          "1_2_mesangial",
+          "1_6_2_mv",
+          "2_2_endo",
+          "2_4_2_smooth",
+          "2_5_2_vesselendo",
+          "3_2_pecs",
+          "arteries_arterioles",
+          "non-globally-sclerotic_glomeruli",
+          "peritubular-capillaries",
+          "tubules"
+        ]
+      },
+      "drop_categories": [
+        "tuft"
+      ]
+    }
+  }
+}

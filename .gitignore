@@ -1,0 +1,15 @@
+# outputs
+work_dirs/
+*.log
+
+# weights (distributed via GitHub Releases)
+checkpoint/
+*.pth
+
+# data
+data/
+
+# python
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/

@@ -1,0 +1,7 @@
+{
+  "_meta": {
+    "description": "Model registry used when --model-name refers to a preset; MORI-seg passes --pred/--config/--checkpoint explicitly, so it is empty.",
+    "category_spaces_json": "category_spaces.json"
+  },
+  "models": {}
+}
