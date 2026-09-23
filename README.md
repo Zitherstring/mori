@@ -11,16 +11,6 @@ MORI-seg is an instance segmentation model for renal pathology: RTMDet-Ins-L ext
 > Leiyue Zhao, Tianyu Shi, Daniel Reisenbuchler, Xinzi He, Junchao Zhu, Tianyuan Yao, Yuechen Yang, Yanfan Zhu, Junlin Guo, Gelei Xu, Haichun Yang, Yuankai Huo, Mert R. Sabuncu, Yihe Yang, Ruining Deng. <br />
 > *arXiv:2605.28261* <br />
 
-**Object-aware Embedding** <br />
-> [Instance Segmentation of Biomedical Images with an Object-aware Embedding Learned with Local Constraints](https://arxiv.org/abs/2004.09821) <br />
-> Long Chen, Martin Strauch, Dorit Merhof. <br />
-> *MICCAI 2019* <br />
-
-**RTMDet** <br />
-> [RTMDet: An Empirical Study of Designing Real-Time Object Detectors](https://arxiv.org/abs/2212.07784) <br />
-> Chengqi Lyu, Wenwei Zhang, Haian Huang, Yue Zhou, Yudong Wang, Yanyi Liu, Shilong Zhang, Kai Chen. <br />
-> *OpenMMLab* <br />
-
 ## Abstract
 
 Instance segmentation on renal pathology images is difficult because objects are dense and touching: tubules form connected sheets and peritubular capillaries are small and tightly packed, so neighbouring instances are easily merged into one. MORI-seg attaches two **training-only** branches to the instance mask predictor of RTMDet-Ins:
