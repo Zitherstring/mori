@@ -74,9 +74,6 @@ bash scripts/eval_core4.sh --devices cuda:0,cuda:0,cuda:0,cuda:1
 
 # another checkpoint
 bash scripts/eval_core4.sh --checkpoint path/to/epoch_100.pth --devices cuda:0
-
-# run detached from the session
-setsid nohup bash scripts/eval_core4.sh --devices cuda:0,cuda:0 > eval.log 2>&1 < /dev/null & disown
 ```
 
 | Argument | Description | Default |
