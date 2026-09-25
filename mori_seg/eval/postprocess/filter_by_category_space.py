@@ -165,7 +165,7 @@ def parse_args():
     parser.add_argument("--gt-json", type=str, default=None, help="Optional GT JSON, used to resolve category_id to category_name")
     parser.add_argument("--category-space", type=str, default=DEFAULT_CATEGORY_SPACE_NAME, help="Target category space name")
     parser.add_argument("--category-spaces-json", type=str, default=str(DEFAULT_CATEGORY_SPACES_PATH), help="Category space configuration JSON")
-    parser.add_argument("--source-space", type=str, default=None, help="Source category space name, e.g. ki_train_6 / kc_train_13 / kpmp_test_core4")
+    parser.add_argument("--source-space", type=str, default=None, help="Source category space name, e.g. train_6 / core4")
     parser.add_argument("--source-class-names", type=str, default=None, help="Comma-separated source category names; takes precedence over --source-space")
     parser.add_argument("--topk-per-image", type=int, default=0, help="Keep at most the top N predictions per image; 0 means no limit")
     return parser.parse_args()

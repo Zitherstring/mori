@@ -25,7 +25,7 @@ DEFAULT_CATEGORY_ORDER = [
     "peritubular-capillaries",
     "tubules",
 ]
-DEFAULT_CATEGORY_SPACE_NAME = "kc_test_mixed_11"
+DEFAULT_CATEGORY_SPACE_NAME = "core4"
 CLASSES_10X_NAMES = {
     "0_2_podocyte",
     "1_2_mesangial",

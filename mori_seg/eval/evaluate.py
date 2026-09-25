@@ -56,7 +56,7 @@ from .postprocess.validate_final_predictions import validate_prediction_file
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_GT_JSON = WORKSPACE_ROOT / "KC/annotations/test.json"
-DEFAULT_REGISTRY_PATH = Path(__file__).with_name("registry_kc_models.json")
+DEFAULT_REGISTRY_PATH = Path(__file__).with_name("model_registry.json")
 WORK_DIRS_ENV_VAR = "MMDET_WORK_DIRS"
 DEFAULT_WORK_DIRS_ROOT = WORKSPACE_ROOT / "work_dirs"
 DEFAULT_CATEGORY_ORDER = list(CATEGORY_DEFAULT_ORDER)
@@ -155,7 +155,7 @@ def infer_model_name_from_pred_path(pred_path):
     stem = pred_path.stem
     if stem == "predictions" and pred_path.parent.name:
         return pred_path.parent.parent.name if pred_path.parent.name in {"infer", "transfer", "postprocess", "final", "eval"} and pred_path.parent.parent.name else pred_path.parent.name
-    return re.sub(r"_merge_v2$", "", stem)
+    return re.sub(r"_predictions$", "", stem)
 
 
 def sanitize_output_token(value):
@@ -1136,7 +1136,7 @@ def find_prediction_from_output_dir(output_dir, config_path=None):
         if not search_dir.exists():
             continue
         for candidate_name in preferred_names:
-            candidate_pred = search_dir / f"{candidate_name}_merge_v2.ndjson"
+            candidate_pred = search_dir / f"{candidate_name}_predictions.ndjson"
             if candidate_pred.exists():
                 return candidate_pred, candidate_name
         candidate = search_dir / "predictions.ndjson"
@@ -1418,7 +1418,7 @@ def resolve_eval_request(args, registry):
         output_dir_source = "default"
     else:
         fallback_name = canonical_model_name or getattr(args, "model_name", None) or (infer_preferred_model_names_from_config(str(config_path))[0] if config_path is not None else "unknown_model")
-        output_dir = WORKSPACE_ROOT / "work_dirs/eval_core4" / sanitize_output_token(fallback_name)
+        output_dir = WORKSPACE_ROOT / "work_dirs/eval" / sanitize_output_token(fallback_name)
 
     stage_dirs = build_stage_dirs(output_dir)
     use_registry_stage_paths = output_dir_source == "default" and default_output_dir is not None and output_dir.resolve() == default_output_dir.resolve()
@@ -1454,7 +1454,7 @@ def resolve_eval_request(args, registry):
         if source_pred_path is None:
             preferred_names = infer_preferred_model_names_from_config(str(config_path))
             inferred_model_name = preferred_names[0]
-            source_pred_path = output_dir / f"{inferred_model_name}_merge_v2.ndjson"
+            source_pred_path = output_dir / f"{inferred_model_name}_predictions.ndjson"
     elif model_cfg.get("default_pred"):
         source_pred_path = resolve_path_arg(model_cfg["default_pred"])
         inferred_model_name = canonical_model_name
@@ -1578,10 +1578,10 @@ def build_cli_parser():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-    python3 -m mori_seg.eval.eval_ndjson_gpu --model-name cbnet_swin_tiny
-    python3 -m mori_seg.eval.eval_ndjson_gpu --model-name rtmdet-ins_l --config mmdetection/configs/rtmdet/rtmdet-ins_l_kc.py --checkpoint /path/to/latest.pth --run-infer
-    python3 -m mori_seg.eval.eval_ndjson_gpu --model-name yolov12 --run-transfer --run-postprocess
-    python3 -m mori_seg.eval.eval_ndjson_gpu --pred EVAL_KPMP/pipeline_scis/results/scis_r50_merge_v2.ndjson --model-name scis_r50 --output-dir EVAL_KPMP/results/kc/scis_smoke
+    python3 -m mori_seg.eval.evaluate --model-name cbnet_swin_tiny
+    python3 -m mori_seg.eval.evaluate --model-name rtmdet-ins_l --config mmdetection/configs/rtmdet/rtmdet-ins_l_kc.py --checkpoint /path/to/latest.pth --run-infer
+    python3 -m mori_seg.eval.evaluate --model-name yolov12 --run-transfer --run-postprocess
+    python3 -m mori_seg.eval.evaluate --pred work_dirs/eval/run/model_predictions.ndjson --model-name model --output-dir work_dirs/eval/run
         """,
     )
     parser.add_argument("--pred", type=str, default=None, help="Source prediction NDJSON; it is finalized into final/ first")
@@ -1602,8 +1602,8 @@ Examples:
     parser.add_argument("--run-postprocess", action="store_true", help="Run postprocess/finalize explicitly; it also runs automatically when final/ is missing")
     parser.add_argument("--transfer-pred-root", type=str, default=None, help="Override the transfer input directory")
     parser.add_argument("--transfer-gt-json", type=str, default=None, help="Override the GT JSON used by transfer")
-    parser.add_argument("--category-space", type=str, default=None, help="Category space name, e.g. kpmp_test_core4 / kc_test_mixed_11")
-    parser.add_argument("--source-space", type=str, default=None, help="Source category space for postprocess, e.g. kc_train_13 / ki_train_6 / kpmp_test_core4")
+    parser.add_argument("--category-space", type=str, default=None, help="Category space name, e.g. core4")
+    parser.add_argument("--source-space", type=str, default=None, help="Source category space for postprocess, e.g. train_6")
     parser.add_argument("--source-class-names", type=str, default=None, help="Comma-separated source category names; takes precedence over --source-space")
     parser.add_argument("--category-spaces-json", type=str, default=str(DEFAULT_CATEGORY_SPACES_PATH), help="Category space configuration JSON")
     parser.add_argument("--postprocess-type", type=str, default=None, help="Override postprocess.type from the registry")

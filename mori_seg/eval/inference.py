@@ -32,9 +32,9 @@ Mapping:
     ves (5)  -> arteries (1)
 
 Usage:
-    python inference_core4.py --config CFG --checkpoint CKPT --gt-json GT.json
-    python inference_core4.py --config CFG --checkpoint CKPT --gt-json GT.json --workers 4
-    python inference_core4.py --config CFG --checkpoint CKPT --gt-json GT.json --no-mask-nms
+    python inference.py --config CFG --checkpoint CKPT --gt-json GT.json
+    python inference.py --config CFG --checkpoint CKPT --gt-json GT.json --workers 4
+    python inference.py --config CFG --checkpoint CKPT --gt-json GT.json --no-mask-nms
 """
 
 import os
@@ -1237,7 +1237,7 @@ def run_inference(device: str = "cuda:0",
     print(f"Device: {device}")
     print(f"Mask NMS: {'on' if enable_mask_nms else 'off'}")
     print(f"Mask NMS contain thres: {mask_nms_contain_thres} (>=1 disables containment suppression)")
-    print(f"Output category space: {'source-raw' if emit_source_category_space else 'legacy-core4'}")
+    print(f"Output category space: {'source-raw' if emit_source_category_space else 'test-4class'}")
     print(f"Preload workers: {num_workers}")
     print(f"Preload mode: {preload_mode}")
     print(f"Batch size: {batch_size}")
@@ -1381,7 +1381,7 @@ def run_inference(device: str = "cuda:0",
     output_tag = output_name
     if num_shards > 1:
         output_tag = f"{output_name}_shard{shard_id}"
-    output_path = OUT_DIR / f"{output_tag}_merge_v2.ndjson"
+    output_path = OUT_DIR / f"{output_tag}_predictions.ndjson"
 
     # Save the image-ID subset used for this run
     dump_subset = subset_save_list
@@ -1733,16 +1733,16 @@ def main():
         epilog="""
 Examples:
     # standard run
-    python inference_core4.py --config CFG --checkpoint CKPT --gt-json GT.json
+    python inference.py --config CFG --checkpoint CKPT --gt-json GT.json
     
     # parallel image preloading (4-8 workers)
-    python inference_core4.py ... --workers 4
+    python inference.py ... --workers 4
     
     # faster: disable Mask NMS
-    python inference_core4.py ... --workers 8 --no-mask-nms
+    python inference.py ... --workers 8 --no-mask-nms
     
     # select GPU
-    python inference_core4.py ... --device cuda:1
+    python inference.py ... --device cuda:1
         """
     )
     parser.add_argument("--config", type=str, default=None,

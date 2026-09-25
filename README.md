@@ -22,11 +22,11 @@ Both branches are dropped at inference, so the inference path stays identical to
 
 ```bash
 cd MORI-seg
-export KPMP_TEST_ROOT=/path/to/test_dataset     # test set root
-bash scripts/eval_core4.sh --devices cuda:0,cuda:0,cuda:0,cuda:1
+export TEST_ROOT=/path/to/test_dataset     # test set root
+bash scripts/eval.sh --devices cuda:0,cuda:0,cuda:0,cuda:1
 ```
 
-This runs `checkpoint/Mori_seg.pth` over the test set and writes results to `work_dirs/eval_core4/Mori_seg/`.
+This runs `checkpoint/Mori_seg.pth` over the test set and writes results to `work_dirs/eval/Mori_seg/`.
 
 ## Installation
 
@@ -54,13 +54,13 @@ Download the pretrained weights from [Google Drive](<LINK>) and place the file a
 
 ```bash
 # single GPU, batch 8
-CUDA_VISIBLE_DEVICES=<GPU_ID> python tools/train.py configs/stage1_objaware_boundary_distexp3_100e.py
+CUDA_VISIBLE_DEVICES=<GPU_ID> python tools/train.py configs/mori_seg.py
 
 # multi-GPU
-bash tools/dist_train.sh configs/stage1_objaware_boundary_distexp3_100e.py <NUM_GPUS>
+bash tools/dist_train.sh configs/mori_seg.py <NUM_GPUS>
 ```
 
-Set `data_root` in the config to your COCO-format dataset (6 classes: `cap, dt, pt, ptc, tuft, ves`). Output goes to `work_dirs/stage1_100e/`.
+Set `data_root` in the config to your COCO-format dataset (6 classes: `cap, dt, pt, ptc, tuft, ves`). Output goes to `work_dirs/mori_seg/`.
 
 ## Evaluation
 
@@ -68,22 +68,22 @@ Set `data_root` in the config to your COCO-format dataset (6 classes: `cap, dt, 
 
 ```bash
 # default checkpoint, 4 shards (3 on cuda:0, 1 on cuda:1)
-bash scripts/eval_core4.sh --devices cuda:0,cuda:0,cuda:0,cuda:1
+bash scripts/eval.sh --devices cuda:0,cuda:0,cuda:0,cuda:1
 
 # another checkpoint
-bash scripts/eval_core4.sh --checkpoint path/to/epoch_100.pth --devices cuda:0
+bash scripts/eval.sh --checkpoint path/to/epoch_100.pth --devices cuda:0
 ```
 
 The 6 training classes are mapped to 4 evaluation classes (`cap → glomeruli`, `dt, pt → tubules`, `ptc → peritubular-capillaries`, `ves → arteries`, `tuft` dropped); 10x images are scored for glomeruli / tubules / arteries and 40x images for ptc. Mapping rules are in `mori_seg/eval/category_spaces.json`.
 
-Everything is written to the output directory, by default `work_dirs/eval_core4/<checkpoint name>/`:
+Everything is written to the output directory, by default `work_dirs/eval/<checkpoint name>/`:
 
 | Output | Content |
 |---|---|
-| `eval_results_<config>.json` | overall and per-class AP / AP50 / AP75, semantic IoU / Dice, F1 / precision / recall, and the 10x / 40x image counts |
-| `per_image_metrics_<config>.csv` | the same metrics for every test image |
-| `<config>_merge_v2.ndjson` | all predictions, one JSON object per line: `image_id`, `category_id`, `score`, RLE `segmentation` |
-| `<config>_shard{0..N}_merge_v2.ndjson` | per-shard predictions; safe to delete once merged |
+| `eval_results_<name>.json` | overall and per-class AP / AP50 / AP75, semantic IoU / Dice, F1 / precision / recall, and the 10x / 40x image counts |
+| `per_image_metrics_<name>.csv` | the same metrics for every test image |
+| `<name>_predictions.ndjson` | all predictions, one JSON object per line: `image_id`, `category_id`, `score`, RLE `segmentation` |
+| `<name>_shard{0..N}_predictions.ndjson` | per-shard predictions; safe to delete once merged |
 | `coco_stdout.txt` | the raw COCOeval summary table |
 | `logs/infer_shard*.log`, `logs/eval.log` | inference and evaluation logs |
 
@@ -92,7 +92,7 @@ The console prints the COCOeval table, the overall mAP / AP50 / AP75, and the pe
 #### 6-class COCO evaluation
 
 ```bash
-python tools/test.py configs/stage1_objaware_boundary_distexp3_100e.py <CHECKPOINT>
+python tools/test.py configs/mori_seg.py <CHECKPOINT>
 ```
 
 ## Acknowledgments

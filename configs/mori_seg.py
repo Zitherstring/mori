@@ -699,5 +699,5 @@ visualizer = dict(
     vis_backends=[
         dict(type='LocalVisBackend'),
     ])
-work_dir = './work_dirs/stage1_100e'
+work_dir = './work_dirs/mori_seg'
 

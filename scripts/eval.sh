@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# 4-class mapping evaluation (kpmp_test_core4): sharded inference -> merge -> evaluate.
+# 4-class evaluation: sharded inference -> merge -> evaluate.
 #
 # Usage (run from anywhere; relative paths resolve against the repository root):
-#   bash scripts/eval_core4.sh [--checkpoint CKPT] [--config CFG] [--out-dir DIR] \
+#   bash scripts/eval.sh [--checkpoint CKPT] [--config CFG] [--out-dir DIR] \
 #        [--devices cuda:0,cuda:0,cuda:0,cuda:1] [--amp] [--contain-thres VAL]
 #
 #   --checkpoint    default checkpoint/Mori_seg.pth
-#   --config        default configs/stage1_objaware_boundary_distexp3_100e.py
-#   --out-dir       default work_dirs/eval_core4/<checkpoint name>
+#   --config        default configs/mori_seg.py
+#   --out-dir       default work_dirs/eval/<checkpoint name>
 #   --devices       one shard process per entry, a GPU may repeat; ~2.1GB VRAM each
 #   --amp           enable mixed-precision inference (off by default)
 #   --contain-thres Mask NMS containment-dedup threshold; 1.01 disables the rule
 #
 # Required environment variable:
-#   KPMP_TEST_ROOT  test set root, containing annotations/{test,test_instance}.json and images/test
+#   TEST_ROOT       test set root, containing annotations/{test,test_instance}.json and images/test
 # Optional:
 #   PY              directory holding the python interpreter to use
 set -euo pipefail
@@ -21,7 +21,7 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
 CKPT="checkpoint/Mori_seg.pth"
-CFG="configs/stage1_objaware_boundary_distexp3_100e.py"
+CFG="configs/mori_seg.py"
 OUT=""
 DEVICES="cuda:0"
 AMP=""
@@ -48,16 +48,16 @@ CFG=$(abspath "$CFG")
 [[ -f "$CFG" ]] || { echo "[ERROR] config not found: $CFG" >&2; exit 1; }
 
 CKPT_STEM=$(basename "$CKPT" .pth)
-OUT=$(abspath "${OUT:-work_dirs/eval_core4/$CKPT_STEM}")
+OUT=$(abspath "${OUT:-work_dirs/eval/$CKPT_STEM}")
 # The inference script names its outputs after the config file
-NAME=$(basename "$CFG" .py | sed -E 's/_ki_split_[0-9]+$//')
+NAME=$(basename "$CFG" .py)
 
-[[ -n "${KPMP_TEST_ROOT:-}" ]] || { echo "[ERROR] KPMP_TEST_ROOT is not set (test set root)" >&2; exit 1; }
-INFER_PY="$ROOT/mori_seg/eval/inference_core4.py"
-GT_TEST="$KPMP_TEST_ROOT/annotations/test.json"
-GT_INSTANCE="$KPMP_TEST_ROOT/annotations/test_instance.json"
-IMG_ROOT="$KPMP_TEST_ROOT/images/test"
-for f in "$INFER_PY" "$ROOT/mori_seg/eval/eval_ndjson_gpu.py" "$GT_TEST" "$GT_INSTANCE" "$IMG_ROOT"; do
+[[ -n "${TEST_ROOT:-}" ]] || { echo "[ERROR] TEST_ROOT is not set (test set root)" >&2; exit 1; }
+INFER_PY="$ROOT/mori_seg/eval/inference.py"
+GT_TEST="$TEST_ROOT/annotations/test.json"
+GT_INSTANCE="$TEST_ROOT/annotations/test_instance.json"
+IMG_ROOT="$TEST_ROOT/images/test"
+for f in "$INFER_PY" "$ROOT/mori_seg/eval/evaluate.py" "$GT_TEST" "$GT_INSTANCE" "$IMG_ROOT"; do
     [[ -e "$f" ]] || { echo "[ERROR] missing dependency: $f" >&2; exit 1; }
 done
 
@@ -93,16 +93,16 @@ fail=0
 for p in "${pids[@]}"; do wait "$p" || fail=1; done
 [[ $fail == 0 ]] || { echo "[ERROR] a shard failed, see $OUT/logs/infer_shard*.log" >&2; exit 1; }
 
-PRED="$OUT/${NAME}_merge_v2.ndjson"
+PRED="$OUT/${NAME}_predictions.ndjson"
 if [[ $N -gt 1 ]]; then
-    cat $(for i in $(seq 0 $((N-1))); do echo "$OUT/${NAME}_shard${i}_merge_v2.ndjson"; done) > "$PRED"
+    cat $(for i in $(seq 0 $((N-1))); do echo "$OUT/${NAME}_shard${i}_predictions.ndjson"; done) > "$PRED"
 fi
 echo "[INFO] predictions: $(wc -l < "$PRED") lines"
 
-python3 -m mori_seg.eval.eval_ndjson_gpu \
+python3 -m mori_seg.eval.evaluate \
     --pred "$PRED" --final-pred "$PRED" \
     --model-name "$NAME" --output-dir "$OUT" \
-    --gt-json "$GT_INSTANCE" --category-space kpmp_test_core4 \
+    --gt-json "$GT_INSTANCE" --category-space core4 \
     --device "${DEVS[0]}" --config "$CFG" --checkpoint "$CKPT" \
     2>&1 | tee "$OUT/logs/eval.log"
 echo "[DONE] results: $OUT/eval_results_${NAME}.json"
