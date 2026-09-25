@@ -76,18 +76,20 @@ bash scripts/eval_core4.sh --devices cuda:0,cuda:0,cuda:0,cuda:1
 bash scripts/eval_core4.sh --checkpoint path/to/epoch_100.pth --devices cuda:0
 ```
 
-| Argument | Description | Default |
-|---|---|---|
-| `--checkpoint` | checkpoint path | `checkpoint/Mori_seg.pth` |
-| `--config` | config file | `configs/stage1_objaware_boundary_distexp3_100e.py` |
-| `--devices` | one shard process per entry, a GPU may repeat | `cuda:0` |
-| `--out-dir` | output directory | `work_dirs/eval_core4/<ckpt name>/` |
-| `--amp` / `--no-amp` | mixed-precision inference | off |
-| `--contain-thres` | Mask NMS containment dedup, `1.01` disables it | `1.01` |
-
 The 6 training classes are mapped to 4 evaluation classes (`cap → glomeruli`, `dt, pt → tubules`, `ptc → peritubular-capillaries`, `ves → arteries`, `tuft` dropped); 10x images are scored for glomeruli / tubules / arteries and 40x images for ptc. Mapping rules are in `mori_seg/eval/category_spaces.json`.
 
-Results are written to `eval_results_<config>.json` (overall and per-class AP/AP50/AP75, semantic IoU/Dice, F1) and `per_image_metrics_<config>.csv`.
+Everything is written to the output directory, by default `work_dirs/eval_core4/<checkpoint name>/`:
+
+| Output | Content |
+|---|---|
+| `eval_results_<config>.json` | overall and per-class AP / AP50 / AP75, semantic IoU / Dice, F1 / precision / recall, and the 10x / 40x image counts |
+| `per_image_metrics_<config>.csv` | the same metrics for every test image |
+| `<config>_merge_v2.ndjson` | all predictions, one JSON object per line: `image_id`, `category_id`, `score`, RLE `segmentation` |
+| `<config>_shard{0..N}_merge_v2.ndjson` | per-shard predictions; safe to delete once merged |
+| `coco_stdout.txt` | the raw COCOeval summary table |
+| `logs/infer_shard*.log`, `logs/eval.log` | inference and evaluation logs |
+
+The console prints the COCOeval table, the overall mAP / AP50 / AP75, and the per-class semantic IoU / Dice and F1.
 
 #### 6-class COCO evaluation
 
@@ -97,8 +99,14 @@ python tools/test.py configs/stage1_objaware_boundary_distexp3_100e.py <CHECKPOI
 
 ## Acknowledgments
 
-- [MMDetection](https://github.com/open-mmlab/mmdetection) / [RTMDet](https://github.com/open-mmlab/mmdetection/tree/main/configs/rtmdet)
-- [Object-aware Embedding (Chen et al., MICCAI 2019)](https://arxiv.org/abs/2004.09821)
+We are grateful to the teams whose work this project builds on:
+
+- [MMDetection](https://github.com/open-mmlab/mmdetection) and [RTMDet](https://github.com/open-mmlab/mmdetection/tree/main/configs/rtmdet), for the detection framework and the baseline detector.
+- [Object-aware Embedding (Chen et al., MICCAI 2019)](https://arxiv.org/abs/2004.09821), whose local-constraint embedding inspired the instance disentanglement branch.
+- The [KI dataset](http://haeckel.case.edu/data/KI_data/), derived from the [NEPTUNE](https://www.neptune-study.org/) study, used for training.
+- The [Kidney Precision Medicine Project (KPMP)](https://www.kpmp.org/) and its [Kidney Tissue Atlas](https://atlas.kpmp.org/), used for external evaluation.
+
+Our thanks go to the patients who contributed tissue, and to the investigators and annotators who made these resources openly available. We wish everyone building on them every success.
 
 ## Citation
 
