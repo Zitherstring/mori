@@ -141,13 +141,7 @@ def resolve_output_dir_from_config_and_checkpoint(config_path, checkpoint_path):
 
 def infer_preferred_model_names_from_config(config_path):
     config_stem = Path(config_path).stem
-    output_name = re.sub(r"_ki_split_\d+$", "", config_stem)
-    preferred_names = []
-    if output_name:
-        preferred_names.append(output_name)
-    if config_stem not in preferred_names:
-        preferred_names.append(config_stem)
-    return preferred_names
+    return [config_stem] if config_stem else []
 
 
 def infer_model_name_from_pred_path(pred_path):

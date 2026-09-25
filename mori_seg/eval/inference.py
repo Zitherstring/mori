@@ -1870,9 +1870,8 @@ Examples:
     # Command-line config/checkpoint override the defaults
     if args.config is not None:
         MODEL_CONFIG["config"] = args.config
-        # Derive output_name from the config file name (drop the _ki_split_XX suffix)
-        config_stem = Path(args.config).stem
-        output_name = re.sub(r'_ki_split_\d+$', '', config_stem)
+        # Output files are named after the config file
+        output_name = Path(args.config).stem
         MODEL_CONFIG["output_name"] = output_name
         print(f"[INFO] output name derived from config: {output_name}")
 
