@@ -1,7 +1,5 @@
 # MORI-seg: Object-Aware RTMDet-Ins for Renal Pathology Instance Segmentation
 
-### [[arXiv Paper]](https://arxiv.org/abs/2605.28261) [[MMDetection]](https://github.com/open-mmlab/mmdetection) [[RTMDet]](https://arxiv.org/abs/2212.07784) [[Object-aware Embedding]](https://arxiv.org/abs/2004.09821)<br />
-
 MORI-seg is an instance segmentation model for renal pathology: RTMDet-Ins-L extended with Object-Aware auxiliary branches (distance / embedding / boundary band), implemented as an **MMDetection plugin**. <br />
 
 ![Method](icon/methodv4.png)<br />
