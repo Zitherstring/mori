@@ -53,11 +53,7 @@ Download the pretrained weights from [Google Drive](<LINK>) and place the file a
 ## Training
 
 ```bash
-# single GPU, batch 8
-CUDA_VISIBLE_DEVICES=<GPU_ID> python tools/train.py configs/mori_seg.py
-
-# multi-GPU
-bash tools/dist_train.sh configs/mori_seg.py <NUM_GPUS>
+python tools/train.py configs/mori_seg.py
 ```
 
 Set `data_root` in the config to your COCO-format dataset (6 classes: `cap, dt, pt, ptc, tuft, ves`). Output goes to `work_dirs/mori_seg/`.
