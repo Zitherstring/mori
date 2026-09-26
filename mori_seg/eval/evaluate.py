@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""NDJSON GPU evaluator and infer/transfer/finalize/eval orchestration entry point."""
+"""NDJSON GPU evaluator entry point."""
 
 from __future__ import annotations
 
@@ -12,9 +12,6 @@ import json
 import os
 import re
 import shutil
-import string
-import subprocess
-import sys
 import tempfile
 from collections import defaultdict
 from contextlib import redirect_stdout
@@ -56,18 +53,9 @@ from .postprocess.validate_final_predictions import validate_prediction_file
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_GT_JSON = WORKSPACE_ROOT / "KC/annotations/test.json"
-DEFAULT_REGISTRY_PATH = Path(__file__).with_name("model_registry.json")
-WORK_DIRS_ENV_VAR = "MMDET_WORK_DIRS"
-DEFAULT_WORK_DIRS_ROOT = WORKSPACE_ROOT / "work_dirs"
 DEFAULT_CATEGORY_ORDER = list(CATEGORY_DEFAULT_ORDER)
 SIZE_PATTERN_10X = re.compile(r"_2048x2048\.png$", re.IGNORECASE)
 SIZE_PATTERN_40X = re.compile(r"_512x512\.png$", re.IGNORECASE)
-
-
-def get_work_dirs_root():
-    """Root directory of the training work dirs; override with the MMDET_WORK_DIRS env var."""
-    env_value = os.environ.get(WORK_DIRS_ENV_VAR)
-    return Path(env_value) if env_value else DEFAULT_WORK_DIRS_ROOT
 
 
 def resolve_path_arg(path_value):
@@ -102,157 +90,12 @@ def write_json_file(path, payload):
         json.dump(payload, f, indent=2, ensure_ascii=False)
 
 
-def infer_checkpoint_from_config(config_path):
-    config_stem = Path(config_path).stem
-    work_dir = get_work_dirs_root() / config_stem
-    if not work_dir.exists():
-        return None
-
-    patterns = [
-        "best_coco_segm_mAP*.pth",
-        "best*.pth",
-        "latest*.pth",
-        "*.pth",
-    ]
-    for pattern in patterns:
-        checkpoints = sorted(work_dir.glob(pattern))
-        if checkpoints:
-            if pattern == "*.pth":
-                checkpoints = sorted(checkpoints, key=lambda item: item.stat().st_mtime)
-            return str(checkpoints[-1])
-    return None
-
-
-def extract_checkpoint_tag(checkpoint_path):
-    ckpt_name = Path(checkpoint_path).name
-    match = re.search(r"epoch_(\d+)", ckpt_name)
-    if match:
-        return match.group(1)
-    if re.search(r"latest", ckpt_name, flags=re.IGNORECASE):
-        return "latest"
-    return Path(checkpoint_path).stem
-
-
-def resolve_output_dir_from_config_and_checkpoint(config_path, checkpoint_path):
-    config_stem = Path(config_path).stem
-    checkpoint_tag = extract_checkpoint_tag(checkpoint_path)
-    return get_work_dirs_root() / config_stem / checkpoint_tag
-
-
-def infer_preferred_model_names_from_config(config_path):
-    config_stem = Path(config_path).stem
-    return [config_stem] if config_stem else []
-
-
 def infer_model_name_from_pred_path(pred_path):
     pred_path = Path(pred_path)
     stem = pred_path.stem
     if stem == "predictions" and pred_path.parent.name:
         return pred_path.parent.parent.name if pred_path.parent.name in {"infer", "transfer", "postprocess", "final", "eval"} and pred_path.parent.parent.name else pred_path.parent.name
     return re.sub(r"_predictions$", "", stem)
-
-
-def sanitize_output_token(value):
-    return re.sub(r"[^0-9A-Za-z._-]+", "_", value).strip("_") or "model"
-
-
-def load_registry(path=DEFAULT_REGISTRY_PATH):
-    path = resolve_path_arg(path) or DEFAULT_REGISTRY_PATH
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-def resolve_model_config(registry, model_name):
-    if not model_name:
-        return None, {}
-
-    models = registry.get("models", {})
-    if model_name in models:
-        return model_name, models[model_name]
-
-    for canonical_name, cfg in models.items():
-        if model_name in cfg.get("aliases", []):
-            return canonical_name, cfg
-    return model_name, {}
-
-
-def print_registry_models(registry):
-    print("Available models in registry:")
-    for model_name, cfg in sorted(registry.get("models", {}).items()):
-        aliases = cfg.get("aliases", [])
-        alias_text = f" aliases={aliases}" if aliases else ""
-        infer_text = " infer=yes" if (cfg.get("infer") or {}).get("script") or (cfg.get("infer") or {}).get("command") else " infer=no"
-        transfer_text = " transfer=yes" if cfg.get("requires_transfer") or cfg.get("transfer") else " transfer=no"
-        postprocess_text = " finalize=yes" if cfg.get("postprocess") else " finalize=no"
-        print(f"- {model_name}{alias_text}{infer_text}{transfer_text}{postprocess_text}")
-        if cfg.get("default_pred"):
-            print(f"    source: {cfg['default_pred']}")
-        if cfg.get("final_pred"):
-            print(f"    final : {cfg['final_pred']}")
-        if cfg.get("default_output_dir"):
-            print(f"    out   : {cfg['default_output_dir']}")
-        if cfg.get("category_space"):
-            print(f"    space : {cfg['category_space']}")
-
-
-def load_subset_image_ids(path):
-    if not path.exists():
-        raise FileNotFoundError(f"subset image list not found: {path}")
-    with open(path, "r", encoding="utf-8") as f:
-        payload = json.load(f)
-
-    if isinstance(payload, dict):
-        image_ids = payload.get("image_ids", [])
-    elif isinstance(payload, list):
-        image_ids = payload
-    else:
-        raise ValueError(f"unsupported subset image list format: {path}")
-    return {int(x) for x in image_ids}
-
-
-def parse_subset_image_ids(raw):
-    tokens = [token.strip() for token in re.split(r"[,;\s]+", raw) if token.strip()]
-    return {int(token) for token in tokens}
-
-
-def resolve_subset_image_ids_from_args(args):
-    subset_ids = set()
-    if getattr(args, "subset_image_ids", None):
-        subset_ids |= parse_subset_image_ids(args.subset_image_ids)
-    if getattr(args, "subset_image_list", None):
-        subset_path = resolve_existing_or_candidate_path(args.subset_image_list, base_dirs=[WORKSPACE_ROOT])
-        subset_ids |= load_subset_image_ids(subset_path)
-    return subset_ids or None
-
-
-def build_filtered_gt_skeleton(coco_gt):
-    dataset = coco_gt.dataset
-    return {
-        "info": copy.deepcopy(dataset.get("info", {})),
-        "licenses": copy.deepcopy(dataset.get("licenses", [])),
-        "type": copy.deepcopy(dataset.get("type", "instances")),
-        "images": [],
-        "annotations": [],
-        "categories": copy.deepcopy(dataset.get("categories", [])),
-    }
-
-
-def filter_gt_by_image_ids(coco_gt, image_ids, fix_iscrowd=True):
-    image_ids = {int(x) for x in image_ids}
-    gt_data = build_filtered_gt_skeleton(coco_gt)
-
-    for img in coco_gt.dataset.get("images", []):
-        if int(img.get("id", -1)) in image_ids:
-            gt_data["images"].append(copy.deepcopy(img))
-
-    valid_img_ids = {int(img["id"]) for img in gt_data["images"]}
-    for ann in coco_gt.dataset.get("annotations", []):
-        if int(ann.get("image_id", -1)) in valid_img_ids:
-            ann_copy = copy.deepcopy(ann)
-            if fix_iscrowd:
-                ann_copy["iscrowd"] = 0
-            gt_data["annotations"].append(ann_copy)
-    return gt_data
 
 
 def compute_iou_gpu_batch(masks_dt, masks_gt):
@@ -360,6 +203,18 @@ def filter_predictions_by_magnification(predictions, img_mag_map, coco_gt, categ
         if cat_name in valid_cats:
             filtered.append(pred)
     return filtered
+
+
+def build_filtered_gt_skeleton(coco_gt):
+    dataset = coco_gt.dataset
+    return {
+        "info": copy.deepcopy(dataset.get("info", {})),
+        "licenses": copy.deepcopy(dataset.get("licenses", [])),
+        "type": copy.deepcopy(dataset.get("type", "instances")),
+        "images": [],
+        "annotations": [],
+        "categories": copy.deepcopy(dataset.get("categories", [])),
+    }
 
 
 def filter_gt_by_magnification(coco_gt, img_mag_map, category_space_cfg=None, fix_iscrowd=True):
@@ -821,9 +676,6 @@ def evaluate_model(
     out_dir,
     gt_json=DEFAULT_GT_JSON,
     device=None,
-    subset_image_ids=None,
-    registry_model_name=None,
-    registry_entry=None,
     category_space_name=None,
     category_space_cfg=None,
     eval_dir=None,
@@ -831,8 +683,6 @@ def evaluate_model(
 ):
     print("=" * 80)
     print(f"Evaluating: {model_name}")
-    if registry_model_name and registry_model_name != model_name:
-        print(f"Registry model name: {registry_model_name}")
     if device:
         print(f"GPU acceleration: {device}")
     if category_space_name:
@@ -846,8 +696,6 @@ def evaluate_model(
         raise FileNotFoundError(f"GT JSON not found: {gt_json}")
     if not pred_path.exists():
         print(f"[ERROR] prediction file not found: {pred_path}")
-        if registry_entry and (registry_entry.get("requires_transfer") or registry_entry.get("transfer")):
-            print("[HINT] this model supports transfer; add --run-transfer to generate the NDJSON")
         return None
 
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -856,28 +704,14 @@ def evaluate_model(
     print("\n[1] Loading data...")
     predictions = load_ndjson(pred_path)
     coco_gt_all = COCO(str(gt_json))
-    temp_subset_gt = None
     temp_category_gt = None
 
     try:
-        if subset_image_ids:
-            subset_image_ids = {int(x) for x in subset_image_ids}
-            predictions = [pred for pred in predictions if int(pred.get("image_id", -1)) in subset_image_ids]
-            gt_subset = filter_gt_by_image_ids(coco_gt_all, subset_image_ids, fix_iscrowd=False)
-            with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-                json.dump(gt_subset, f)
-                temp_subset_gt = f.name
-            coco_gt_source = COCO(temp_subset_gt)
-            gt_data_source = coco_gt_source.dataset
-            print(f"    Subset GT images: {len(gt_data_source['images'])}")
-            print(f"    Subset GT annotations: {len(gt_data_source['annotations'])}")
-            print(f"    Subset predictions: {len(predictions)}")
-        else:
-            coco_gt_source = coco_gt_all
-            gt_data_source = coco_gt_source.dataset
-            print(f"    GT images: {len(gt_data_source['images'])}")
-            print(f"    GT annotations: {len(gt_data_source['annotations'])}")
-            print(f"    Predictions: {len(predictions)}")
+        coco_gt_source = coco_gt_all
+        gt_data_source = coco_gt_source.dataset
+        print(f"    GT images: {len(gt_data_source['images'])}")
+        print(f"    GT annotations: {len(gt_data_source['annotations'])}")
+        print(f"    Predictions: {len(predictions)}")
 
         if category_space_cfg is not None:
             predictions = remap_predictions_to_category_space(predictions, category_space_cfg, source_categories=gt_data_source.get("categories", []))
@@ -959,16 +793,13 @@ def evaluate_model(
 
         output = {
             "model": model_name,
-            "registry_model_name": registry_model_name,
             "pred_file": str(pred_path),
             "final_pred_file": str(final_pred_path or pred_path),
             "output_dir": str(out_dir),
             "eval_output_dir": str(eval_output_dir),
             "gt_json": str(gt_json),
             "gpu_accelerated": device is not None,
-            "subset_eval": bool(subset_image_ids),
-            "subset_image_count": len(coco_gt.getImgIds()),
-            "requires_transfer": bool(registry_entry and (registry_entry.get("requires_transfer") or registry_entry.get("transfer"))),
+            "image_count": len(coco_gt.getImgIds()),
             "category_space": category_space_name,
             "category_space_order": [cat["name"] for cat in gt_data.get("categories", [])],
             "magnification_stats": {"10x_images": count_10x, "40x_images": count_40x},
@@ -987,8 +818,6 @@ def evaluate_model(
         print(f"\n[OK] results saved: {result_json_path}")
         return output
     finally:
-        if temp_subset_gt is not None and os.path.exists(temp_subset_gt):
-            os.unlink(temp_subset_gt)
         if temp_category_gt is not None and os.path.exists(temp_category_gt):
             os.unlink(temp_category_gt)
 
@@ -1050,388 +879,29 @@ def build_stage_dirs(output_root):
     return stage_dirs
 
 
-def flatten_context_value(value):
-    if isinstance(value, Path):
-        return str(value)
-    return value
+def resolve_eval_request(args):
+    gt_json = resolve_path_arg(getattr(args, "gt_json", None)) or DEFAULT_GT_JSON
+    config_path = resolve_path_arg(getattr(args, "config", None))
+    checkpoint_path = resolve_path_arg(getattr(args, "checkpoint", None))
 
-
-def build_runtime_context(
-    *,
-    model_name,
-    output_root,
-    stage_dirs,
-    config_path=None,
-    checkpoint_path=None,
-    device=None,
-    image_root=None,
-    gt_json=None,
-    extra=None,
-):
-    output_root = Path(output_root)
-    context = {
-        "model_name": model_name,
-        "output_root": output_root,
-        "root": output_root,
-        "config": config_path,
-        "checkpoint": checkpoint_path,
-        "config_stem": Path(config_path).stem if config_path is not None else None,
-        "checkpoint_tag": extract_checkpoint_tag(checkpoint_path) if checkpoint_path is not None else None,
-        "device": device,
-        "image_root": image_root,
-        "gt_json": gt_json,
-    }
-    for key, value in stage_dirs.items():
-        context[f"{key}_dir"] = value
-    if extra:
-        context.update(extra)
-    return context
-
-
-def render_template_string(template, context):
-    formatter = string.Formatter()
-    field_names = [field_name for _, field_name, _, _ in formatter.parse(template) if field_name]
-    missing = [field_name for field_name in field_names if context.get(field_name) in (None, "")]
-    if missing:
-        raise ValueError(f"command template is missing context values: {template} -> {missing}")
-    safe_context = {key: flatten_context_value(value) for key, value in context.items()}
-    return template.format(**safe_context)
-
-
-def render_command_items(items, context):
-    rendered = []
-    if items is None:
-        return rendered
-    for item in items:
-        if item is None:
-            continue
-        if isinstance(item, (list, tuple)):
-            rendered.extend(render_command_items(item, context))
-            continue
-        item_str = str(item)
-        placeholder_match = re.fullmatch(r"\{([A-Za-z0-9_]+)\}", item_str)
-        if placeholder_match is not None:
-            placeholder_name = placeholder_match.group(1)
-            placeholder_value = context.get(placeholder_name, None)
-            if placeholder_value in (None, ""):
-                continue
-        item_text = render_template_string(item_str, context)
-        if item_text != "":
-            rendered.append(item_text)
-    return rendered
-
-
-def find_prediction_from_output_dir(output_dir, config_path=None):
-    output_dir = Path(output_dir)
-    preferred_names = infer_preferred_model_names_from_config(config_path) if config_path else []
-    search_dirs = [output_dir / "final", output_dir / "postprocess", output_dir / "transfer", output_dir / "infer", output_dir]
-
-    for search_dir in search_dirs:
-        if not search_dir.exists():
-            continue
-        for candidate_name in preferred_names:
-            candidate_pred = search_dir / f"{candidate_name}_predictions.ndjson"
-            if candidate_pred.exists():
-                return candidate_pred, candidate_name
-        candidate = search_dir / "predictions.ndjson"
-        if candidate.exists():
-            return candidate, infer_model_name_from_pred_path(candidate)
-
-    ndjson_files = []
-    for search_dir in search_dirs:
-        if search_dir.exists():
-            ndjson_files.extend(sorted(search_dir.glob("*.ndjson")))
-    if ndjson_files:
-        pred_path = ndjson_files[-1]
-        return pred_path, infer_model_name_from_pred_path(pred_path)
-    return None, None
-
-
-def run_infer_for_model(model_name, model_cfg, *, stage_dirs, config_path=None, checkpoint_path=None, device=None, image_root=None, gt_json=None, infer_options=None):
-    infer_cfg = model_cfg.get("infer") or {}
-    script_path = resolve_path_arg(infer_cfg.get("script")) if infer_cfg.get("script") else None
-    if script_path is None and not infer_cfg.get("command"):
-        raise ValueError(f"model {model_name} has no infer script/command configured")
-    if script_path is not None and not script_path.exists():
-        raise FileNotFoundError(f"infer script not found: {script_path}")
-
-    infer_options = infer_options or argparse.Namespace()
-    raw_output_dir = resolve_path_arg(infer_cfg.get("raw_output_dir")) or stage_dirs["infer"]
-    raw_output_dir.mkdir(parents=True, exist_ok=True)
-    resolved_config = config_path or resolve_path_arg(infer_cfg.get("config"))
-    resolved_checkpoint = checkpoint_path or resolve_path_arg(infer_cfg.get("checkpoint"))
-    infer_pred_root = resolve_path_arg(infer_cfg.get("pred_root")) or raw_output_dir
-    infer_out_pred = resolve_path_arg(infer_cfg.get("out_pred"))
-    resolved_image_root = resolve_path_arg(image_root) if image_root is not None else None
-    if device is not None:
-        device_for_infer = str(device)
-    elif bool(getattr(infer_options, "no_gpu", False)):
-        device_for_infer = "cpu"
-    else:
-        device_for_infer = str(getattr(infer_options, "device", None) or "cuda:0")
-    export_objaware_map = bool(getattr(infer_options, "export_objaware_map", False))
-    objaware_map_dir = resolve_path_arg(getattr(infer_options, "objaware_map_dir", None))
-    if objaware_map_dir is None:
-        objaware_map_dir = raw_output_dir / "objaware_maps"
-
-    context = build_runtime_context(
-        model_name=model_name,
-        output_root=stage_dirs["root"],
-        stage_dirs=stage_dirs,
-        config_path=resolved_config,
-        checkpoint_path=resolved_checkpoint,
-        device=device_for_infer,
-        image_root=resolved_image_root,
-        gt_json=gt_json,
-        extra={
-            "raw_output_dir": raw_output_dir,
-            "pred_root": infer_pred_root,
-            "out_pred": infer_out_pred,
-            "img_root_flag": "--img-root" if resolved_image_root is not None else "",
-            "image_root": resolved_image_root if resolved_image_root is not None else "",
-            "workers": int(getattr(infer_options, "workers", 4)),
-            "preload_mode": str(getattr(infer_options, "preload_mode", "thread")),
-            "batch_size": int(getattr(infer_options, "batch_size", 1)),
-            "amp_flag": "--amp" if bool(getattr(infer_options, "amp", False)) else "",
-            "log_every": int(getattr(infer_options, "log_every", 200)),
-            "num_shards": int(getattr(infer_options, "num_shards", 1)),
-            "shard_id": int(getattr(infer_options, "shard_id", 0)),
-            "emit_source_category_space_flag": "--emit-source-category-space" if bool(infer_cfg.get("emit_source_category_space")) else "",
-            "export_objaware_map_flag": "--export-objaware-map" if export_objaware_map else "",
-            "objaware_map_dir_flag": "--objaware-map-dir" if export_objaware_map or getattr(infer_options, "objaware_map_dir", None) else "",
-            "objaware_map_dir": objaware_map_dir if export_objaware_map or getattr(infer_options, "objaware_map_dir", None) else "",
-            "isdf_refine_flag": "--isdf-refine" if bool(getattr(infer_options, "isdf_refine", False)) else "",
-            "isdf_sigma": float(getattr(infer_options, "isdf_sigma", 1.0)),
-            "isdf_h": float(getattr(infer_options, "isdf_h", 2.0)),
-            "isdf_min_size": int(getattr(infer_options, "isdf_min_size", 10)),
-            "isdf_downscale": float(getattr(infer_options, "isdf_downscale", 1.0)),
-            "isdf_topk": int(getattr(infer_options, "isdf_topk", 0)),
-            "isdf_min_area": int(getattr(infer_options, "isdf_min_area", 0)),
-        },
-    )
-
-    if infer_cfg.get("command"):
-        cmd = render_command_items(infer_cfg.get("command"), context)
-    else:
-        cmd = [sys.executable, str(script_path)]
-        infer_args = infer_cfg.get("args") or []
-        if infer_args:
-            cmd.extend(render_command_items(infer_args, context))
-        else:
-            if resolved_config is not None:
-                cmd.extend(["--config", str(resolved_config)])
-            if resolved_checkpoint is not None:
-                cmd.extend(["--checkpoint", str(resolved_checkpoint)])
-            cmd.extend(["--output-dir", str(raw_output_dir)])
-            if device_for_infer:
-                cmd.extend(["--device", str(device_for_infer)])
-            if resolved_image_root is not None:
-                cmd.extend([str(infer_cfg.get("image_root_arg") or "--image-root"), str(resolved_image_root)])
-
-    print(f"[INFO] running infer ({model_name})...")
-    print("[INFO] " + " ".join(cmd))
-    subprocess.run(cmd, check=True)
-    return {
-        "raw_output_dir": raw_output_dir,
-        "pred_root": infer_pred_root,
-        "out_pred": infer_out_pred,
-    }
-
-
-def run_transfer_for_model(model_name, model_cfg, *, stage_dirs, category_space_name=None, category_spaces_path=None, transfer_pred_root=None, transfer_gt_json=None, infer_runtime=None):
-    transfer_cfg = model_cfg.get("transfer") or {}
-    script_path = resolve_path_arg(transfer_cfg.get("script"))
-    if script_path is None or not script_path.exists():
-        raise FileNotFoundError(f"transfer script not found: {script_path}")
-
-    pred_root_value = transfer_pred_root or transfer_cfg.get("pred_root") or (infer_runtime or {}).get("pred_root") or (infer_runtime or {}).get("raw_output_dir")
-    if not pred_root_value:
-        raise ValueError(f"model {model_name} has no transfer pred_root configured")
-    pred_root = resolve_path_arg(pred_root_value)
-    if not pred_root.exists():
-        raise FileNotFoundError(f"transfer input directory not found: {pred_root}")
-
-    transfer_gt_value = transfer_gt_json or transfer_cfg.get("gt_json")
-    transfer_gt = resolve_path_arg(transfer_gt_value)
-    if transfer_gt is None or not transfer_gt.exists():
-        raise FileNotFoundError(f"transfer GT JSON not found: {transfer_gt}")
-
-    out_path = resolve_path_arg(transfer_cfg.get("out_path")) or (stage_dirs["transfer"] / "predictions.ndjson")
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-
-    cmd = [
-        sys.executable,
-        str(script_path),
-        "--gt-json",
-        str(transfer_gt),
-        "--pred-root",
-        str(pred_root),
-        "--out-path",
-        str(out_path),
-    ]
-    if transfer_cfg.get("conf_min") is not None:
-        cmd.extend(["--conf-min", str(transfer_cfg["conf_min"])])
-    if transfer_cfg.get("topk_per_image") is not None:
-        cmd.extend(["--topk-per-image", str(transfer_cfg["topk_per_image"])])
-    if transfer_cfg.get("procs") is not None:
-        cmd.extend(["--procs", str(transfer_cfg["procs"])])
-    if transfer_cfg.get("chunk_size") is not None:
-        cmd.extend(["--chunk-size", str(transfer_cfg["chunk_size"])])
-    if category_space_name or transfer_cfg.get("category_space"):
-        cmd.extend(["--category-space", str(category_space_name or transfer_cfg.get("category_space"))])
-    if category_spaces_path is not None:
-        cmd.extend(["--category-spaces-json", str(category_spaces_path)])
-    if transfer_cfg.get("source_space") is not None:
-        cmd.extend(["--source-space", str(transfer_cfg.get("source_space"))])
-    if transfer_cfg.get("source_class_names") is not None:
-        source_class_names = transfer_cfg.get("source_class_names")
-        if isinstance(source_class_names, list):
-            source_class_names = ",".join(source_class_names)
-        cmd.extend(["--source-class-names", str(source_class_names)])
-
-    print(f"[INFO] running transfer ({model_name})...")
-    print("[INFO] " + " ".join(cmd))
-    subprocess.run(cmd, check=True)
-    return out_path
-
-
-def run_postprocess_for_model(
-    model_name,
-    model_cfg,
-    *,
-    input_pred,
-    gt_json,
-    stage_dirs,
-    category_space_name,
-    category_spaces_path,
-    final_pred_path=None,
-    postprocess_type=None,
-    source_space_override=None,
-    source_class_names_override=None,
-):
-    post_cfg = model_cfg.get("postprocess") or {}
-    effective_type = postprocess_type or post_cfg.get("type") or "finalize_ndjson"
-    effective_source_space = source_space_override if source_space_override is not None else post_cfg.get("source_space")
-    effective_source_class_names = source_class_names_override if source_class_names_override is not None else post_cfg.get("source_class_names")
-    stage_output_pred = stage_dirs["postprocess"] / "predictions.ndjson"
-    output_pred = Path(final_pred_path or resolve_path_arg(post_cfg.get("output_pred")) or (stage_dirs["final"] / "predictions.ndjson"))
-    stage_output_pred.parent.mkdir(parents=True, exist_ok=True)
-    output_pred.parent.mkdir(parents=True, exist_ok=True)
-    input_pred = Path(input_pred)
-
-    if not input_pred.exists():
-        raise FileNotFoundError(f"postprocess input predictions not found: {input_pred}")
-
-    if effective_type in {"none", "identity"}:
-        if input_pred.resolve() != stage_output_pred.resolve():
-            shutil.copyfile(input_pred, stage_output_pred)
-    else:
-        script_path = resolve_path_arg(post_cfg.get("script")) or (Path(__file__).with_name("postprocess") / "remap_predictions_to_test_space.py")
-        if script_path is None or not script_path.exists():
-            raise FileNotFoundError(f"postprocess script not found: {script_path}")
-
-        context = build_runtime_context(
-            model_name=model_name,
-            output_root=stage_dirs["root"],
-            stage_dirs=stage_dirs,
-            gt_json=gt_json,
-            extra={
-                "input_pred": input_pred,
-                "output_pred": output_pred,
-                "postprocess_output": stage_output_pred,
-                "gt_json": gt_json,
-                "category_space": category_space_name,
-                "category_spaces_json": category_spaces_path,
-                "postprocess_type": effective_type,
-            },
-        )
-
-        if post_cfg.get("command"):
-            cmd = render_command_items(post_cfg.get("command"), context)
-        else:
-            cmd = [
-                sys.executable,
-                str(script_path),
-                "--pred",
-                str(input_pred),
-                "--out-pred",
-                str(stage_output_pred),
-                "--gt-json",
-                str(gt_json),
-                "--category-space",
-                str(category_space_name),
-                "--category-spaces-json",
-                str(category_spaces_path),
-            ]
-            if effective_source_space is not None:
-                cmd.extend(["--source-space", str(effective_source_space)])
-            if effective_source_class_names is not None:
-                source_class_names = effective_source_class_names
-                if isinstance(source_class_names, list):
-                    source_class_names = ",".join(source_class_names)
-                cmd.extend(["--source-class-names", str(source_class_names)])
-            if post_cfg.get("topk_per_image") is not None:
-                cmd.extend(["--topk-per-image", str(post_cfg.get("topk_per_image"))])
-            if post_cfg.get("args"):
-                cmd.extend(render_command_items(post_cfg.get("args"), context))
-
-        print(f"[INFO] running postprocess ({model_name}, type={effective_type})...")
-        print("[INFO] " + " ".join(cmd))
-        subprocess.run(cmd, check=True)
-
-    if stage_output_pred.resolve() != output_pred.resolve():
-        shutil.copyfile(stage_output_pred, output_pred)
-    return output_pred
-
-
-def resolve_eval_request(args, registry):
-    canonical_model_name, model_cfg = resolve_model_config(registry, getattr(args, "model_name", None))
-    meta_cfg = registry.get("_meta", {})
-    infer_cfg = model_cfg.get("infer") or {}
-
-    gt_json = resolve_path_arg(getattr(args, "gt_json", None)) or resolve_path_arg(meta_cfg.get("default_gt_json")) or DEFAULT_GT_JSON
-    config_path = resolve_path_arg(getattr(args, "config", None)) or resolve_path_arg(infer_cfg.get("config"))
-    checkpoint_path = resolve_path_arg(getattr(args, "checkpoint", None)) or resolve_path_arg(infer_cfg.get("checkpoint"))
-    if config_path is not None and checkpoint_path is None:
-        inferred_checkpoint = infer_checkpoint_from_config(str(config_path))
-        if inferred_checkpoint is not None:
-            checkpoint_path = Path(inferred_checkpoint)
-            print(f"[INFO] inferred checkpoint: {checkpoint_path}")
-
-    default_output_dir = resolve_path_arg(model_cfg.get("default_output_dir")) if model_cfg.get("default_output_dir") else None
-    output_dir_source = "fallback"
     if getattr(args, "output_dir", None) is not None:
         output_dir = resolve_path_arg(args.output_dir)
-        output_dir_source = "arg"
-    elif config_path is not None and checkpoint_path is not None:
-        output_dir = resolve_output_dir_from_config_and_checkpoint(str(config_path), str(checkpoint_path))
-        output_dir_source = "config"
-        print(f"[INFO] output directory derived from config/checkpoint: {output_dir}")
-    elif default_output_dir is not None:
-        output_dir = default_output_dir
-        output_dir_source = "default"
     else:
-        fallback_name = canonical_model_name or getattr(args, "model_name", None) or (infer_preferred_model_names_from_config(str(config_path))[0] if config_path is not None else "unknown_model")
-        output_dir = WORKSPACE_ROOT / "work_dirs/eval" / sanitize_output_token(fallback_name)
+        fallback_name = getattr(args, "model_name", None) or "unknown_model"
+        output_dir = WORKSPACE_ROOT / "work_dirs/eval" / fallback_name
 
     stage_dirs = build_stage_dirs(output_dir)
-    use_registry_stage_paths = output_dir_source == "default" and default_output_dir is not None and output_dir.resolve() == default_output_dir.resolve()
 
-    category_spaces_path = resolve_path_arg(getattr(args, "category_spaces_json", None)) or resolve_path_arg(meta_cfg.get("category_spaces_json")) or DEFAULT_CATEGORY_SPACES_PATH
+    category_spaces_path = resolve_path_arg(getattr(args, "category_spaces_json", None)) or DEFAULT_CATEGORY_SPACES_PATH
     category_spaces = load_category_spaces(category_spaces_path)
-    requested_category_space = getattr(args, "category_space", None) or model_cfg.get("category_space") or meta_cfg.get("default_category_space") or DEFAULT_CATEGORY_SPACE_NAME
+    requested_category_space = getattr(args, "category_space", None) or DEFAULT_CATEGORY_SPACE_NAME
     category_space_name, category_space_cfg = resolve_category_space(category_spaces, requested_category_space)
 
-    eval_cfg = model_cfg.get("eval") or {}
-    eval_output_dir = resolve_path_arg(eval_cfg.get("output_dir")) if use_registry_stage_paths and eval_cfg.get("output_dir") else stage_dirs["eval"]
+    eval_output_dir = stage_dirs["eval"]
 
     final_pred_override = resolve_path_arg(getattr(args, "final_pred", None))
     if final_pred_override is not None:
         final_pred_path = final_pred_override
-    elif use_registry_stage_paths and model_cfg.get("final_pred"):
-        final_pred_path = resolve_path_arg(model_cfg.get("final_pred"))
-    elif use_registry_stage_paths and (model_cfg.get("postprocess") or {}).get("output_pred"):
-        final_pred_path = resolve_path_arg((model_cfg.get("postprocess") or {}).get("output_pred"))
     else:
         final_pred_path = stage_dirs["final"] / "predictions.ndjson"
     final_pred_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1443,105 +913,35 @@ def resolve_eval_request(args, registry):
     if getattr(args, "pred", None) is not None:
         source_pred_path = resolve_existing_or_candidate_path(args.pred, base_dirs=pred_search_bases)
         inferred_model_name = infer_model_name_from_pred_path(source_pred_path)
-    elif config_path is not None:
-        source_pred_path, inferred_model_name = find_prediction_from_output_dir(output_dir, str(config_path))
-        if source_pred_path is None:
-            preferred_names = infer_preferred_model_names_from_config(str(config_path))
-            inferred_model_name = preferred_names[0]
-            source_pred_path = output_dir / f"{inferred_model_name}_predictions.ndjson"
-    elif model_cfg.get("default_pred"):
-        source_pred_path = resolve_path_arg(model_cfg["default_pred"])
-        inferred_model_name = canonical_model_name
-    else:
-        source_pred_path, inferred_model_name = find_prediction_from_output_dir(output_dir)
-
-    infer_runtime = None
-    if getattr(args, "run_infer", False):
-        infer_runtime = run_infer_for_model(
-            canonical_model_name or getattr(args, "model_name", None) or "unknown",
-            model_cfg,
-            stage_dirs=stage_dirs,
-            config_path=config_path,
-            checkpoint_path=checkpoint_path,
-            device=getattr(args, "device", None),
-            image_root=resolve_path_arg(getattr(args, "image_root", None)),
-            gt_json=gt_json,
-            infer_options=args,
-        )
-        infer_out_pred = infer_runtime.get("out_pred")
-        if infer_out_pred is not None and Path(infer_out_pred).exists():
-            source_pred_path = Path(infer_out_pred)
-        else:
-            infer_search_dir = Path(infer_runtime.get("raw_output_dir") or stage_dirs["infer"])
-            source_pred_path, inferred_from_infer = find_prediction_from_output_dir(infer_search_dir, str(config_path) if config_path is not None else None)
-            if inferred_from_infer is not None:
-                inferred_model_name = inferred_from_infer
-
-    if getattr(args, "run_transfer", False):
-        if not model_cfg.get("requires_transfer") and not model_cfg.get("transfer"):
-            raise ValueError(f"model {canonical_model_name or getattr(args, 'model_name', None)} has no transfer configured")
-        source_pred_path = run_transfer_for_model(
-            canonical_model_name or getattr(args, "model_name", None) or "unknown",
-            model_cfg,
-            stage_dirs=stage_dirs,
-            category_space_name=category_space_name,
-            category_spaces_path=category_spaces_path,
-            transfer_pred_root=getattr(args, "transfer_pred_root", None),
-            transfer_gt_json=getattr(args, "transfer_gt_json", None),
-            infer_runtime=infer_runtime,
-        )
-        inferred_model_name = canonical_model_name or inferred_model_name
 
     pred_path = None
-    if final_pred_path.exists() and not any(
-        [
-            getattr(args, "run_infer", False),
-            getattr(args, "run_transfer", False),
-            getattr(args, "run_postprocess", False),
-            getattr(args, "pred", None) is not None,
-        ]
-    ):
-        pred_path = final_pred_path
-    elif source_pred_path is not None:
+    if source_pred_path is not None:
         source_pred_path = Path(source_pred_path)
-        if source_pred_path.exists() and source_pred_path.resolve() == final_pred_path.resolve():
-            pred_path = final_pred_path
-        else:
-            if not source_pred_path.exists():
-                raise FileNotFoundError(f"source predictions not found: {source_pred_path}")
-            print("[INFO] generating/refreshing the standard NDJSON under final/")
-            pred_path = run_postprocess_for_model(
-                canonical_model_name or getattr(args, "model_name", None) or inferred_model_name or "unknown",
-                model_cfg,
-                input_pred=source_pred_path,
-                gt_json=gt_json,
-                stage_dirs=stage_dirs,
-                category_space_name=category_space_name,
-                category_spaces_path=category_spaces_path,
-                final_pred_path=final_pred_path,
-                postprocess_type=getattr(args, "postprocess_type", None),
-                source_space_override=getattr(args, "source_space", None),
-                source_class_names_override=getattr(args, "source_class_names", None),
+        if not source_pred_path.exists():
+            raise FileNotFoundError(f"source predictions not found: {source_pred_path}")
+        if source_pred_path.resolve() != final_pred_path.resolve():
+            raise ValueError(
+                "evaluation only accepts the final prediction NDJSON; "
+                f"--pred ({source_pred_path}) and --final-pred ({final_pred_path}) must point at the same file"
             )
+        pred_path = final_pred_path
     elif final_pred_path.exists():
         pred_path = final_pred_path
 
-    model_name = canonical_model_name or getattr(args, "model_name", None) or inferred_model_name
+    model_name = getattr(args, "model_name", None) or inferred_model_name
     if model_name is None and pred_path is not None:
         model_name = infer_model_name_from_pred_path(pred_path)
     if model_name is None:
         raise ValueError("cannot determine model_name; pass --model-name explicitly")
     if pred_path is None:
-        raise ValueError("cannot determine the final prediction file; pass --pred or use --run-infer/--run-transfer")
-    if Path(pred_path).resolve() != Path(final_pred_path).resolve():
-        raise ValueError(f"evaluation only accepts the standard NDJSON under final/, got: {pred_path}")
+        raise ValueError("cannot determine the final prediction file; pass --pred/--final-pred")
 
     final_validation = validate_prediction_file(
         pred_path=Path(pred_path),
         gt_json=Path(gt_json),
         category_space_name=category_space_name,
-        source_space_name=getattr(args, "source_space", None) or (model_cfg.get("postprocess") or {}).get("source_space"),
-        source_class_names=getattr(args, "source_class_names", None) or (model_cfg.get("postprocess") or {}).get("source_class_names"),
+        source_space_name=getattr(args, "source_space", None),
+        source_class_names=getattr(args, "source_class_names", None),
         category_spaces_json=category_spaces_path,
         verbose=True,
     )
@@ -1549,8 +949,6 @@ def resolve_eval_request(args, registry):
 
     return {
         "model_name": model_name,
-        "registry_model_name": canonical_model_name,
-        "registry_entry": model_cfg,
         "pred_path": Path(pred_path),
         "output_dir": output_dir,
         "stage_dirs": stage_dirs,
@@ -1568,96 +966,53 @@ def resolve_eval_request(args, registry):
 
 def build_cli_parser():
     parser = argparse.ArgumentParser(
-        description="NDJSON GPU evaluator / infer-transfer-finalize-eval orchestrator",
+        description="NDJSON GPU evaluator",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-    python3 -m mori_seg.eval.evaluate --model-name cbnet_swin_tiny
-    python3 -m mori_seg.eval.evaluate --model-name rtmdet-ins_l --config mmdetection/configs/rtmdet/rtmdet-ins_l_kc.py --checkpoint /path/to/latest.pth --run-infer
-    python3 -m mori_seg.eval.evaluate --model-name yolov12 --run-transfer --run-postprocess
-    python3 -m mori_seg.eval.evaluate --pred work_dirs/eval/run/model_predictions.ndjson --model-name model --output-dir work_dirs/eval/run
+    python3 -m mori_seg.eval.evaluate --pred work_dirs/eval/run/model_predictions.ndjson --final-pred work_dirs/eval/run/model_predictions.ndjson --model-name model --output-dir work_dirs/eval/run
         """,
     )
-    parser.add_argument("--pred", type=str, default=None, help="Source prediction NDJSON; it is finalized into final/ first")
+    parser.add_argument("--pred", type=str, default=None, help="Final prediction NDJSON to evaluate")
     parser.add_argument("--gt-json", type=str, default=None, help="Path to the GT JSON")
-    parser.add_argument("--model-name", type=str, default=None, help="Model name in the registry")
+    parser.add_argument("--model-name", type=str, default=None, help="Model name used to name the output files")
     parser.add_argument("--output-dir", type=str, default=None, help="Output directory")
     parser.add_argument("--device", type=str, default="cuda:0", help="GPU device (default: cuda:0)")
     parser.add_argument("--no-gpu", action="store_true", help="Disable GPU and run on CPU")
-    parser.add_argument("--subset-image-list", type=str, default=None, help="JSON file with a subset of image IDs")
-    parser.add_argument("--subset-image-ids", type=str, default=None, help="Comma-separated subset image IDs")
-    parser.add_argument("--registry", type=str, default=str(DEFAULT_REGISTRY_PATH), help="Model registry JSON")
-    parser.add_argument("--config", type=str, default=None, help="Model config path, used to derive the output directory and prediction file")
-    parser.add_argument("--checkpoint", type=str, default=None, help="Model checkpoint path, combined with --config to derive the output directory")
-    parser.add_argument("--image-root", type=str, default=None, help="Optional image root directory for inference")
-    parser.add_argument("--list-models", action="store_true", help="List the models in the registry")
-    parser.add_argument("--run-infer", action="store_true", help="Run inference first when the model defines an infer stage")
-    parser.add_argument("--run-transfer", action="store_true", help="Run the transfer stage first when the model defines one")
-    parser.add_argument("--run-postprocess", action="store_true", help="Run postprocess/finalize explicitly; it also runs automatically when final/ is missing")
-    parser.add_argument("--transfer-pred-root", type=str, default=None, help="Override the transfer input directory")
-    parser.add_argument("--transfer-gt-json", type=str, default=None, help="Override the GT JSON used by transfer")
+    parser.add_argument("--config", type=str, default=None, help="Model config path, recorded with the evaluation request")
+    parser.add_argument("--checkpoint", type=str, default=None, help="Model checkpoint path, recorded with the evaluation request")
     parser.add_argument("--category-space", type=str, default=None, help="Category space name, e.g. core4")
-    parser.add_argument("--source-space", type=str, default=None, help="Source category space for postprocess, e.g. train_6")
+    parser.add_argument("--source-space", type=str, default=None, help="Source category space used when validating predictions, e.g. train_6")
     parser.add_argument("--source-class-names", type=str, default=None, help="Comma-separated source category names; takes precedence over --source-space")
     parser.add_argument("--category-spaces-json", type=str, default=str(DEFAULT_CATEGORY_SPACES_PATH), help="Category space configuration JSON")
-    parser.add_argument("--postprocess-type", type=str, default=None, help="Override postprocess.type from the registry")
     parser.add_argument("--final-pred", type=str, default=None, help="Final prediction NDJSON; defaults to output_dir/final/predictions.ndjson")
-    parser.add_argument("--workers", type=int, default=4, help="Number of preload workers for infer (default: 4)")
-    parser.add_argument("--preload-mode", type=str, default="thread", choices=["thread", "process"], help="Preload mode for infer")
-    parser.add_argument("--batch-size", type=int, default=1, help="Batch size for infer (default: 1)")
-    parser.add_argument("--amp", action="store_true", help="Enable AMP during infer")
-    parser.add_argument("--log-every", type=int, default=200, help="Logging interval for infer (default: 200)")
-    parser.add_argument("--num-shards", type=int, default=1, help="Total number of infer shards (default: 1)")
-    parser.add_argument("--shard-id", type=int, default=0, help="Infer shard index (default: 0)")
-    parser.add_argument("--export-objaware-map", action="store_true", help="Export objaware maps during infer")
-    parser.add_argument("--objaware-map-dir", type=str, default=None, help="Output directory for objaware maps")
-    parser.add_argument("--isdf-refine", action="store_true", help="Enable iSDF refinement during infer")
-    parser.add_argument("--isdf-sigma", type=float, default=1.0, help="iSDF sigma")
-    parser.add_argument("--isdf-h", type=float, default=2.0, help="iSDF h")
-    parser.add_argument("--isdf-min-size", type=int, default=10, help="Minimum instance size in pixels for iSDF")
-    parser.add_argument("--isdf-downscale", type=float, default=1.0, help="iSDF downscale factor")
-    parser.add_argument("--isdf-topk", type=int, default=0, help="iSDF top-k")
-    parser.add_argument("--isdf-min-area", type=int, default=0, help="Minimum area threshold for iSDF")
     return parser
 
 
 def main(argv=None):
     parser = build_cli_parser()
     args = parser.parse_args(argv)
-    registry = load_registry(resolve_path_arg(args.registry) or DEFAULT_REGISTRY_PATH)
-
-    if args.list_models:
-        print_registry_models(registry)
-        return 0
-
-    if args.config is not None and args.checkpoint is None:
-        inferred_checkpoint = infer_checkpoint_from_config(args.config)
-        if inferred_checkpoint is not None:
-            args.checkpoint = inferred_checkpoint
-            print(f"[INFO] inferred checkpoint: {args.checkpoint}")
-
-    subset_ids = resolve_subset_image_ids_from_args(args)
-    if subset_ids:
-        print(f"[INFO] subset evaluation enabled, images: {len(subset_ids)}")
 
     device = resolve_device(args.device, args.no_gpu)
-    request = resolve_eval_request(args, registry)
+    request = resolve_eval_request(args)
     result = evaluate_model(
         model_name=request["model_name"],
         pred_path=request["pred_path"],
         out_dir=request["output_dir"],
         gt_json=request["gt_json"],
         device=device,
-        subset_image_ids=subset_ids,
-        registry_model_name=request["registry_model_name"],
-        registry_entry=request["registry_entry"],
         category_space_name=request["category_space_name"],
         category_space_cfg=request["category_space_cfg"],
         eval_dir=request["eval_output_dir"],
         final_pred_path=request["final_pred_path"],
     )
     print_results_table(result)
-    return 0 if result is not None else 1
+    if result is None:
+        return 1
+    if result.get("segm") is None:
+        print("[ERROR] COCOeval produced no segm metrics")
+        return 1
+    return 0
 
 
 if __name__ == "__main__":

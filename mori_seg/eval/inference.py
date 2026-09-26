@@ -77,14 +77,6 @@ from mmdet.utils import get_test_pipeline_cfg
 from mmcv.transforms import Compose
 from mmengine.structures import InstanceData
 from pycocotools import mask as maskUtils
-
-try:
-    from scipy.ndimage import gaussian_filter, label as scipy_label
-    from skimage.segmentation import watershed
-    from mmdet.models.dense_heads.instabound_postprocess import h_maxima
-    _HAS_ISDF_POST = True
-except Exception:
-    _HAS_ISDF_POST = False
 from pycocotools.coco import COCO
 
 
@@ -208,44 +200,6 @@ def load_subset_image_ids(path: Path) -> set:
     return {int(x) for x in image_ids}
 
 
-def parse_kv_int_map(text: str) -> dict:
-    """Parse an integer mapping string such as "0:100,1:200"."""
-    if text is None:
-        return {}
-    text = str(text).strip()
-    if not text:
-        return {}
-    mapping = {}
-    for part in text.split(","):
-        part = part.strip()
-        if not part:
-            continue
-        if ":" in part:
-            k, v = part.split(":", 1)
-        elif "=" in part:
-            k, v = part.split("=", 1)
-        else:
-            continue
-        try:
-            k_i = int(k.strip())
-            v_i = int(float(v.strip()))
-        except Exception:
-            continue
-        mapping[k_i] = v_i
-    return mapping
-
-
-def format_progress_bar(done: int, total: int, width: int = 30) -> tuple[str, float]:
-    """Build a static text progress bar."""
-    total_safe = max(int(total), 1)
-    done_clamped = max(0, min(int(done), total_safe))
-    ratio = done_clamped / float(total_safe)
-    filled = int(round(width * ratio))
-    filled = max(0, min(filled, width))
-    bar = f"[{'=' * filled}{'-' * (width - filled)}]"
-    return bar, ratio * 100.0
-
-
 def stratified_sample_images(images: list,
                              subset_size: int = 0,
                              subset_ratio: float = 1.0,
@@ -346,38 +300,6 @@ def stratified_sample_images(images: list,
 
     sampled.sort(key=lambda x: int(x["id"]))
     return sampled
-
-
-def infer_checkpoint_from_config(config_path: str) -> str:
-    """
-    Infer the checkpoint path from the config path.
-
-    Search order:
-    1. work_dirs/<config_stem>/best_coco_segm_mAP*.pth
-    2. work_dirs/<config_stem>/best*.pth
-    3. work_dirs/<config_stem>/latest*.pth
-    4. work_dirs/<config_stem>/*.pth (most recently modified)
-    """
-    config_stem = Path(config_path).stem
-    work_dir = WORK_DIRS_ROOT / config_stem
-    if not work_dir.exists():
-        return None
-
-    patterns = [
-        'best_coco_segm_mAP*.pth',
-        'best*.pth',
-        'latest*.pth',
-        '*.pth',
-    ]
-
-    for pattern in patterns:
-        ckpts = sorted(work_dir.glob(pattern))
-        if ckpts:
-            if pattern == '*.pth':
-                ckpts = sorted(ckpts, key=lambda p: p.stat().st_mtime)
-            return str(ckpts[-1])
-
-    return None
 
 
 def extract_checkpoint_tag(checkpoint_path: str) -> str:
@@ -575,67 +497,9 @@ def mask_to_rle(mask: np.ndarray) -> dict:
     return rle
 
 
-def remove_small_connected_components(mask: np.ndarray, min_area: int) -> np.ndarray:
-    """Remove connected components smaller than min_area."""
-    if mask is None:
-        return mask
-    min_area = int(min_area) if min_area is not None else 0
-    if min_area <= 1:
-        return mask
-    mask_u8 = mask.astype(np.uint8)
-    if mask_u8.sum() == 0:
-        return mask_u8.astype(bool)
-    num_labels, labels = cv2.connectedComponents(mask_u8, connectivity=8)
-    if num_labels <= 1:
-        return mask_u8.astype(bool)
-    counts = np.bincount(labels.reshape(-1))
-    keep = np.flatnonzero(counts >= min_area)
-    keep = keep[keep != 0]
-    if keep.size == 0:
-        return np.zeros_like(mask_u8, dtype=bool)
-    cleaned = np.isin(labels, keep)
-    return cleaned
-
-
-def compute_distance_transform(mask: np.ndarray, sigma: float = 0.0) -> np.ndarray:
-    """Compute the distance transform inside the mask (optional Gaussian smoothing)."""
-    if mask is None:
-        return None
-    mask_u8 = mask.astype(np.uint8)
-    if mask_u8.sum() == 0:
-        return np.zeros_like(mask_u8, dtype=np.float32)
-    dist_map = cv2.distanceTransform(mask_u8, cv2.DIST_L2, 5).astype(np.float32)
-    sigma = float(sigma) if sigma is not None else 0.0
-    if sigma > 0:
-        dist_map = gaussian_filter(dist_map, sigma=sigma)
-    return dist_map
-
-
-def resolve_target_label4_from_prediction(pred: dict) -> int | None:
-    """Recover the 4-class index from a prediction, used to pick the per-class NMS threshold."""
-    category_name = pred.get("category_name") or pred.get("source_category_name")
-    if category_name in NAMES_6:
-        label_6 = NAMES_6.index(category_name)
-        return MAP_6to4_ID.get(label_6)
-
-    category_id = pred.get("category_id")
-    try:
-        category_id = int(category_id)
-    except (TypeError, ValueError):
-        return None
-
-    if category_name in NAMES_4 and 1 <= category_id <= len(NAMES_4):
-        return category_id - 1
-    if 1 <= category_id <= len(NAMES_4):
-        return category_id - 1
-    if 1 <= category_id <= len(NAMES_6):
-        return MAP_6to4_ID.get(category_id - 1)
-    return None
-
-
 def apply_mask_nms_per_category(predictions: list,
                                 contain_threshold: float = None,
-                                use_source_category_space: bool = False) -> list:
+                                ) -> list:
     """Apply Mask NMS per category."""
     if not ENABLE_MASK_NMS or len(predictions) == 0:
         return predictions
@@ -655,7 +519,7 @@ def apply_mask_nms_per_category(predictions: list,
             filtered.extend(preds)
             continue
         
-        label_4 = resolve_target_label4_from_prediction(preds[0]) if use_source_category_space else (cat_id - 1)
+        label_4 = cat_id - 1
         nms_thres = MASK_NMS_THRES.get(label_4, 0.3)
         
         masks = []
@@ -678,316 +542,9 @@ def apply_mask_nms_per_category(predictions: list,
     return filtered
 
 
-def apply_instance_mask_nms(instances: InstanceData,
-                            iou_threshold: float = 0.3,
-                            only_classes: set = None,
-                            contain_threshold: float = 1.01) -> InstanceData:
-    """Run a stricter instance-level mask NMS, optionally limited to given 6-class IDs."""
-    if instances is None or not hasattr(instances, 'masks'):
-        return instances
-    if len(instances) == 0:
-        return instances
-
-    masks = instances.masks.detach().cpu().numpy().astype(bool)
-    scores = instances.scores.detach().cpu().numpy()
-    labels = instances.labels.detach().cpu().numpy().astype(int)
-
-    only_set = set(only_classes) if only_classes else None
-    keep_indices = []
-
-    for cls in np.unique(labels):
-        cls_indices = np.where(labels == cls)[0]
-        if cls_indices.size == 0:
-            continue
-        if only_set is not None and int(cls) not in only_set:
-            keep_indices.extend(cls_indices.tolist())
-            continue
-        if cls_indices.size == 1:
-            keep_indices.append(int(cls_indices[0]))
-            continue
-        cls_masks = [masks[i] for i in cls_indices]
-        cls_scores = [scores[i] for i in cls_indices]
-        keep_rel = mask_nms(
-            cls_masks,
-            cls_scores,
-            iou_threshold=float(iou_threshold),
-            contain_threshold=float(contain_threshold))
-        keep_indices.extend([int(cls_indices[k]) for k in keep_rel])
-
-    keep_indices = sorted(set(keep_indices))
-    if len(keep_indices) == len(labels):
-        return instances
-
-    device = instances.masks.device
-    refined = InstanceData()
-    if len(keep_indices) == 0:
-        refined.masks = instances.masks[:0]
-        refined.scores = instances.scores[:0]
-        refined.labels = instances.labels[:0]
-        return refined
-
-    refined.masks = torch.from_numpy(np.stack([masks[i] for i in keep_indices])).to(device).bool()
-    refined.scores = torch.tensor([scores[i] for i in keep_indices], device=device, dtype=instances.scores.dtype)
-    refined.labels = torch.tensor([labels[i] for i in keep_indices], device=device, dtype=instances.labels.dtype)
-    return refined
-
-
-def softmix_normalize_map(phi: np.ndarray,
-                          p_lo: float = 1.0,
-                          p_hi: float = 99.0,
-                          eps: float = 1e-6) -> np.ndarray:
-    """SoftMix-aware normalization: percentile stretch to [-1, 1]."""
-    if phi.size == 0:
-        return phi
-    flat = phi.reshape(-1)
-    try:
-        lo = float(np.percentile(flat, p_lo))
-        hi = float(np.percentile(flat, p_hi))
-    except Exception:
-        return phi
-    if not np.isfinite(lo) or not np.isfinite(hi) or (hi - lo) < eps:
-        return phi
-    out = (phi - lo) / (hi - lo)
-    out = out * 2.0 - 1.0
-    return np.clip(out, -1.0, 1.0).astype(np.float32)
-
-
-def refine_masks_with_isdf(instances, mask_min_size: int,
-                           isdf_sigma: float, isdf_h: float,
-                           isdf_downscale: float = 1.0,
-                           isdf_topk: int = 0,
-                           min_area_for_refine: int = 0,
-                           min_area_by_class: dict = None,
-                           refine_only_classes: set = None,
-                           softmix_norm: bool = False,
-                           softmix_k: float = 1.0,
-                           softmix_p_lo: float = 1.0,
-                           softmix_p_hi: float = 99.0,
-                           h_rel: float = 0.0,
-                           seed_min: int = 2,
-                           seed_max: int = 8,
-                           seed_min_area: int = 2,
-                           refine_mode: str = "phi",
-                           dt_sigma: float = 0.0,
-                           min_second_area_ratio: float = 0.12,
-                           min_child_area_ratio: float = 0.04,
-                           max_children: int = 4,
-                           child_score_gamma: float = 0.65,
-                           child_score_floor: float = 0.25) -> object:
-    """Split and refine each instance using the objaware iSDF/distance map.
-
-    refine_mode:
-        - phi/softmix/isdf: watershed on the SoftMix/iSDF terrain
-        - dt: watershed on the distance-transform terrain (seeds still from SoftMix/iSDF)
-    """
-    if not _HAS_ISDF_POST:
-        return instances
-    if instances is None:
-        return instances
-    if not hasattr(instances, 'masks'):
-        return instances
-
-    obj_map = getattr(instances, 'objaware_map', None)
-    if obj_map is None and hasattr(instances, 'metainfo'):
-        obj_map = instances.metainfo.get('objaware_map', None)
-    if obj_map is None:
-        return instances
-
-    phi = obj_map.squeeze(0) if obj_map.dim() == 3 else obj_map
-    phi_np = phi.detach().cpu().numpy().astype(np.float32)
-    if softmix_norm:
-        phi_np = softmix_normalize_map(phi_np, p_lo=softmix_p_lo, p_hi=softmix_p_hi)
-        if softmix_k is not None and float(softmix_k) > 0:
-            phi_np = phi_np * float(softmix_k)
-
-    masks = instances.masks.detach().cpu().numpy().astype(bool)
-    scores = instances.scores.detach().cpu().numpy()
-    labels = instances.labels.detach().cpu().numpy()
-
-    if isdf_topk is not None and isdf_topk > 0:
-        order = np.argsort(scores)[::-1]
-        refine_ids = set(order[: min(int(isdf_topk), len(order))].tolist())
-    else:
-        refine_ids = set(range(len(masks)))
-
-    new_masks = []
-    new_scores = []
-    new_labels = []
-
-    refine_only = set(refine_only_classes) if refine_only_classes else None
-    min_area_by_class = min_area_by_class or {}
-    mode = str(refine_mode).lower().strip()
-    if mode in {"dt", "distance", "distance_transform"}:
-        mode = "dt"
-    else:
-        mode = "phi"
-
-    for idx in range(len(masks)):
-        mask = masks[idx]
-        mask_area = int(mask.sum())
-        label_i = int(labels[idx])
-
-        if refine_only is not None and label_i not in refine_only:
-            new_masks.append(mask)
-            new_scores.append(float(scores[idx]))
-            new_labels.append(label_i)
-            continue
-        if mask_area < mask_min_size:
-            new_masks.append(mask)
-            new_scores.append(float(scores[idx]))
-            new_labels.append(int(labels[idx]))
-            continue
-
-        if idx not in refine_ids:
-            new_masks.append(mask)
-            new_scores.append(float(scores[idx]))
-            new_labels.append(label_i)
-            continue
-
-        class_min_area = int(min_area_by_class.get(label_i, 0))
-        if class_min_area > 0 and mask_area < class_min_area:
-            new_masks.append(mask)
-            new_scores.append(float(scores[idx]))
-            new_labels.append(label_i)
-            continue
-
-        if min_area_for_refine > 0 and mask_area < min_area_for_refine:
-            new_masks.append(mask)
-            new_scores.append(float(scores[idx]))
-            new_labels.append(label_i)
-            continue
-
-        scale = float(isdf_downscale) if isdf_downscale and isdf_downscale > 1.0 else 1.0
-        if scale > 1.0:
-            new_h = max(1, int(round(mask.shape[0] / scale)))
-            new_w = max(1, int(round(mask.shape[1] / scale)))
-            mask_ds = cv2.resize(mask.astype(np.uint8), (new_w, new_h), interpolation=cv2.INTER_NEAREST) > 0
-            phi_ds = cv2.resize(phi_np, (new_w, new_h), interpolation=cv2.INTER_AREA)
-            mask_for = mask_ds
-            phi_for = phi_ds
-            min_size_local = max(1, int(mask_min_size / (scale * scale)))
-            seed_min_area_local = int(seed_min_area) if seed_min_area else 0
-            if seed_min_area_local > 1:
-                seed_min_area_local = max(1, int(round(seed_min_area_local / (scale * scale))))
-        else:
-            mask_for = mask
-            phi_for = phi_np
-            min_size_local = mask_min_size
-            seed_min_area_local = int(seed_min_area) if seed_min_area else 0
-
-        phi_local = phi_for.copy()
-        phi_local[~mask_for] = phi_for.min() - 1.0
-
-        if isdf_sigma > 0:
-            phi_smooth = gaussian_filter(phi_local, sigma=isdf_sigma)
-        else:
-            phi_smooth = phi_local
-
-        h_val = float(isdf_h)
-        if h_rel is not None and float(h_rel) > 0:
-            vals = phi_smooth[mask_for]
-            if vals.size > 0:
-                try:
-                    lo = float(np.percentile(vals, 5.0))
-                    hi = float(np.percentile(vals, 95.0))
-                    if np.isfinite(lo) and np.isfinite(hi):
-                        h_val = max(1e-6, float(h_rel) * float(hi - lo))
-                except Exception:
-                    pass
-
-        seeds = h_maxima(phi_smooth, h_val) & mask_for
-        if seed_min_area_local > 1:
-            seeds = remove_small_connected_components(seeds, seed_min_area_local)
-        if seeds.sum() == 0:
-            continue
-
-        markers, num_seeds = scipy_label(seeds)
-        if num_seeds <= 0:
-            continue
-
-        if mode == "dt":
-            terrain = compute_distance_transform(mask_for, sigma=dt_sigma)
-        else:
-            terrain = phi_smooth
-        if terrain is None:
-            continue
-
-        segments = watershed(-terrain, markers, mask=mask_for)
-
-        parent_area = max(int(mask.sum()), 1)
-        child_candidates = []
-
-        for seg_id in range(1, num_seeds + 1):
-            seg_mask = segments == seg_id
-            if seg_mask.sum() < min_size_local:
-                continue
-            if scale > 1.0:
-                seg_mask = cv2.resize(seg_mask.astype(np.uint8),
-                                      (mask.shape[1], mask.shape[0]),
-                                      interpolation=cv2.INTER_NEAREST) > 0
-            child_area = int(seg_mask.sum())
-            if child_area < mask_min_size:
-                continue
-            child_candidates.append((seg_mask, child_area))
-
-        if len(child_candidates) == 0:
-            continue
-
-        for seg_mask, child_area in child_candidates:
-            area_ratio = float(child_area) / float(parent_area)
-            score_scale = area_ratio ** float(child_score_gamma)
-            score_scale = min(1.0, max(float(child_score_floor), score_scale))
-            child_score = float(scores[idx]) * score_scale
-            new_masks.append(seg_mask)
-            new_scores.append(float(child_score))
-            new_labels.append(int(labels[idx]))
-
-    if len(new_masks) == 0:
-        refined = InstanceData()
-        refined.masks = instances.masks[:0]
-        refined.scores = instances.scores[:0]
-        refined.labels = instances.labels[:0]
-        return refined
-
-    device = instances.masks.device
-    refined = InstanceData()
-    refined.masks = torch.from_numpy(np.stack(new_masks)).to(device).bool()
-    refined.scores = torch.tensor(new_scores, device=device, dtype=instances.scores.dtype)
-    refined.labels = torch.tensor(new_labels, device=device, dtype=instances.labels.dtype)
-    return refined
-
-
 def process_single_result(result, image_id: int, img_info: dict, magnification: str,
-                          enable_isdf_refine: bool = False,
-                          isdf_sigma: float = 1.0,
-                          isdf_h: float = 2.0,
-                          isdf_min_size: int = 10,
-                          isdf_downscale: float = 1.0,
-                          isdf_topk: int = 0,
-                          isdf_min_area: int = 0,
-                          isdf_min_area_by_class: dict = None,
-                          isdf_refine_classes: set = None,
-                          isdf_post_nms: bool = False,
-                          isdf_post_nms_thres: float = 0.3,
-                          isdf_post_nms_classes: set = None,
-                          tubules_min_area: int = 0,
-                          isdf_softmix_norm: bool = False,
-                          isdf_softmix_k: float = 1.0,
-                          isdf_softmix_p_lo: float = 1.0,
-                          isdf_softmix_p_hi: float = 99.0,
-                          isdf_h_rel: float = 0.0,
-                          isdf_seed_min: int = 2,
-                          isdf_seed_max: int = 8,
-                          isdf_seed_min_area: int = 2,
-                          isdf_refine_mode: str = "phi",
-                          isdf_dt_sigma: float = 0.0,
-                          isdf_min_second_ratio: float = 0.12,
-                          isdf_min_child_ratio: float = 0.04,
-                          isdf_max_children: int = 4,
-                          isdf_score_gamma: float = 0.65,
-                          isdf_score_floor: float = 0.25,
                           mask_nms_contain_thres: float = 1.01,
-                          emit_source_category_space: bool = False) -> list:
+                          ) -> list:
     """
     Post-process the inference result of one image (per-class score and area filters).
     """
@@ -998,41 +555,6 @@ def process_single_result(result, image_id: int, img_info: dict, magnification: 
     
     # Prediction instances
     pred_instances = result.pred_instances
-    if enable_isdf_refine:
-        pred_instances = refine_masks_with_isdf(
-            pred_instances,
-            mask_min_size=isdf_min_size,
-            isdf_sigma=isdf_sigma,
-            isdf_h=isdf_h,
-            isdf_downscale=isdf_downscale,
-            isdf_topk=isdf_topk,
-            min_area_for_refine=isdf_min_area,
-            min_area_by_class=isdf_min_area_by_class,
-            refine_only_classes=isdf_refine_classes,
-            softmix_norm=isdf_softmix_norm,
-            softmix_k=isdf_softmix_k,
-            softmix_p_lo=isdf_softmix_p_lo,
-            softmix_p_hi=isdf_softmix_p_hi,
-            h_rel=isdf_h_rel,
-            seed_min=isdf_seed_min,
-            seed_max=isdf_seed_max,
-            seed_min_area=isdf_seed_min_area,
-            refine_mode=isdf_refine_mode,
-            dt_sigma=isdf_dt_sigma,
-            min_second_area_ratio=isdf_min_second_ratio,
-            min_child_area_ratio=isdf_min_child_ratio,
-            max_children=isdf_max_children,
-            child_score_gamma=isdf_score_gamma,
-            child_score_floor=isdf_score_floor,
-        )
-
-    if enable_isdf_refine and isdf_post_nms and pred_instances is not None and len(pred_instances) > 0:
-        pred_instances = apply_instance_mask_nms(
-            pred_instances,
-            iou_threshold=isdf_post_nms_thres,
-            only_classes=isdf_post_nms_classes,
-            contain_threshold=mask_nms_contain_thres,
-        )
     
     if len(pred_instances) == 0:
         return predictions
@@ -1065,58 +587,35 @@ def process_single_result(result, image_id: int, img_info: dict, magnification: 
         if mask_area == 0:
             continue
 
-        # 5.1 tubules: drop small connected components
-        if tubules_min_area and label_6 in (1, 2):
-            mask = remove_small_connected_components(mask, int(tubules_min_area))
-            mask_area = mask.sum()
-            if mask_area == 0:
-                continue
-        
         # 6. Mask area filter
-        if tubules_min_area and label_6 in (1, 2):
-            min_area = int(tubules_min_area)
-        else:
-            min_area = MIN_MASK_AREA.get(label_6, 0)
+        min_area = MIN_MASK_AREA.get(label_6, 0)
         if mask_area < min_area:
             continue
         
         rle = mask_to_rle(mask)
 
-        if emit_source_category_space:
-            source_cat_id = int(label_6) + 1
-            predictions.append({
-                "image_id": image_id,
-                "category_id": source_cat_id,
-                "category_name": source_name,
-                "source_category_id": source_cat_id,
-                "source_category_name": source_name,
-                "score": score,
-                "segmentation": rle,
-            })
-        else:
-            # 3. 6-class -> 4-class mapping
-            label_4 = MAP_6to4_ID.get(label_6)
-            if label_4 is None:
-                continue
+        # 3. 6-class -> 4-class mapping
+        label_4 = MAP_6to4_ID.get(label_6)
+        if label_4 is None:
+            continue
 
-            # 4. 4-class index -> GT category_id
-            gt_cat_id = PRED_TO_GT_CAT_ID.get(label_4)
-            if gt_cat_id is None:
-                continue
+        # 4. 4-class index -> GT category_id
+        gt_cat_id = PRED_TO_GT_CAT_ID.get(label_4)
+        if gt_cat_id is None:
+            continue
 
-            predictions.append({
-                "image_id": image_id,
-                "category_id": gt_cat_id,
-                "category_name": NAMES_4[label_4],
-                "score": score,
-                "segmentation": rle,
-            })
+        predictions.append({
+            "image_id": image_id,
+            "category_id": gt_cat_id,
+            "category_name": NAMES_4[label_4],
+            "score": score,
+            "segmentation": rle,
+        })
     
     # 7. Per-category Mask NMS
     predictions = apply_mask_nms_per_category(
         predictions,
-        contain_threshold=mask_nms_contain_thres,
-        use_source_category_space=emit_source_category_space)
+        contain_threshold=mask_nms_contain_thres)
     
     # 8. Sort by score and truncate
     predictions.sort(key=lambda x: x["score"], reverse=True)
@@ -1178,38 +677,8 @@ def run_inference(device: str = "cuda:0",
                   output_dir: Path = None,
                   export_objaware_map: bool = False,
                   objaware_map_dir: Path = None,
-                  enable_isdf_refine: bool = False,
-                  isdf_sigma: float = 1.0,
-                  isdf_h: float = 2.0,
-                  isdf_min_size: int = 10,
-                  isdf_downscale: float = 1.0,
-                  isdf_topk: int = 0,
-                  isdf_min_area: int = 0,
-                  isdf_min_area_by_class: dict = None,
-                  isdf_refine_classes: set = None,
-                  isdf_post_nms: bool = False,
-                  isdf_post_nms_thres: float = 0.3,
-                  isdf_post_nms_classes: set = None,
-                  tubules_min_area: int = 0,
-                  isdf_softmix_norm: bool = False,
-                  isdf_softmix_k: float = 1.0,
-                  isdf_softmix_p_lo: float = 1.0,
-                  isdf_softmix_p_hi: float = 99.0,
-                  isdf_h_rel: float = 0.0,
-                  isdf_seed_min: int = 2,
-                  isdf_seed_max: int = 8,
-                  isdf_seed_min_area: int = 2,
-                  isdf_refine_mode: str = "phi",
-                  isdf_dt_sigma: float = 0.0,
-                  isdf_min_second_ratio: float = 0.12,
-                  isdf_min_child_ratio: float = 0.04,
-                  isdf_max_children: int = 4,
-                  isdf_score_gamma: float = 0.65,
-                  isdf_score_floor: float = 0.25,
                   mask_nms_contain_thres: float = 0.85,
-                  emit_source_category_space: bool = False,
-                  no_tqdm: bool = False,
-                  progress_step: int = 5):
+                  ):
     """
     Run inference.
     """
@@ -1237,47 +706,17 @@ def run_inference(device: str = "cuda:0",
     print(f"Device: {device}")
     print(f"Mask NMS: {'on' if enable_mask_nms else 'off'}")
     print(f"Mask NMS contain thres: {mask_nms_contain_thres} (>=1 disables containment suppression)")
-    print(f"Output category space: {'source-raw' if emit_source_category_space else 'test-4class'}")
     print(f"Preload workers: {num_workers}")
     print(f"Preload mode: {preload_mode}")
     print(f"Batch size: {batch_size}")
     print(f"AMP: {'on' if use_amp else 'off'}")
     print(f"Log interval: every {log_every} images")
     print(f"Shard: {shard_id}/{num_shards}")
-    print(f"Progress: {'static bar' if no_tqdm else 'tqdm'}")
-    if no_tqdm:
-        print(f"Progress step: every {max(1, int(progress_step))}%")
     print(f"Export ObjAware map: {'on' if export_objaware_map else 'off'}")
-    print(f"iSDF post-processing: {'on' if enable_isdf_refine else 'off'}")
     if subset_image_list is not None:
         print(f"Subset list: {subset_image_list}")
     else:
         print(f"Subset sampling: size={subset_size}, ratio={subset_ratio}, seed={subset_seed}")
-    if enable_isdf_refine:
-        print(
-            f"iSDF params: sigma={isdf_sigma}, h={isdf_h}, min_size={isdf_min_size}, "
-            f"topk={isdf_topk}, min_area={isdf_min_area}, seed=[{isdf_seed_min},{isdf_seed_max}], "
-            f"second_ratio>={isdf_min_second_ratio}, child_ratio>={isdf_min_child_ratio}, "
-            f"max_children={isdf_max_children}, score_gamma={isdf_score_gamma}, score_floor={isdf_score_floor}"
-        )
-        print(
-            f"iSDF mode: mode={isdf_refine_mode}, seed_min_area={isdf_seed_min_area}, dt_sigma={isdf_dt_sigma}"
-        )
-        if isdf_min_area_by_class:
-            print(f"iSDF per-class min_area: {isdf_min_area_by_class}")
-        if isdf_refine_classes:
-            print(f"iSDF refine classes (6-class IDs): {sorted(list(isdf_refine_classes))}")
-        if isdf_post_nms:
-            if isdf_post_nms_classes:
-                print(f"iSDF post NMS: on, thr={isdf_post_nms_thres}, classes={sorted(list(isdf_post_nms_classes))}")
-            else:
-                print(f"iSDF post NMS: on, thr={isdf_post_nms_thres}")
-        print(
-            f"SoftMix normalization: norm={isdf_softmix_norm}, k={isdf_softmix_k}, "
-            f"p=[{isdf_softmix_p_lo},{isdf_softmix_p_hi}], h_rel={isdf_h_rel}"
-        )
-    if tubules_min_area and int(tubules_min_area) > 0:
-        print(f"Tubules min area override: {int(tubules_min_area)} (labels 1/2)")
 
     amp_runtime_enabled = bool(use_amp and str(device).startswith('cuda'))
     
@@ -1432,13 +871,7 @@ def run_inference(device: str = "cuda:0",
     
     with open(output_path, "wb") as fo:
         pbar = None
-        progress_step = max(1, int(progress_step))
-        last_progress_mark = -1
-        if not no_tqdm:
-            pbar = tqdm(total=len(images), desc="inference", ncols=100)
-        else:
-            bar0, pct0 = format_progress_bar(0, len(images))
-            print(f"[PROGRESS] {bar0} {pct0:5.1f}% (0/{len(images)})")
+        pbar = tqdm(total=len(images), desc="inference", ncols=100)
         
         while True:
             if is_interrupted():
@@ -1583,7 +1016,7 @@ def run_inference(device: str = "cuda:0",
                 magnification = item["magnification"]
                 img_info = item["img_info"]
 
-                # Optionally export the objaware map (distance/iSDF)
+                # Optionally export the objaware map (distance map)
                 if export_objaware_map:
                     pred_instances = getattr(result, "pred_instances", None)
                     if pred_instances is not None:
@@ -1604,36 +1037,7 @@ def run_inference(device: str = "cuda:0",
                     image_id,
                     img_info,
                     magnification,
-                    enable_isdf_refine=enable_isdf_refine,
-                    isdf_sigma=isdf_sigma,
-                    isdf_h=isdf_h,
-                    isdf_min_size=isdf_min_size,
-                    isdf_downscale=isdf_downscale,
-                    isdf_topk=isdf_topk,
-                    isdf_min_area=isdf_min_area,
-                    isdf_min_area_by_class=isdf_min_area_by_class,
-                    isdf_refine_classes=isdf_refine_classes,
-                    isdf_post_nms=isdf_post_nms,
-                    isdf_post_nms_thres=isdf_post_nms_thres,
-                    isdf_post_nms_classes=isdf_post_nms_classes,
-                    tubules_min_area=tubules_min_area,
-                    isdf_softmix_norm=isdf_softmix_norm,
-                    isdf_softmix_k=isdf_softmix_k,
-                    isdf_softmix_p_lo=isdf_softmix_p_lo,
-                    isdf_softmix_p_hi=isdf_softmix_p_hi,
-                    isdf_h_rel=isdf_h_rel,
-                    isdf_seed_min=isdf_seed_min,
-                    isdf_seed_max=isdf_seed_max,
-                    isdf_seed_min_area=isdf_seed_min_area,
-                    isdf_refine_mode=isdf_refine_mode,
-                    isdf_dt_sigma=isdf_dt_sigma,
-                    isdf_min_second_ratio=isdf_min_second_ratio,
-                    isdf_min_child_ratio=isdf_min_child_ratio,
-                    isdf_max_children=isdf_max_children,
-                    isdf_score_gamma=isdf_score_gamma,
-                    isdf_score_floor=isdf_score_floor,
                     mask_nms_contain_thres=mask_nms_contain_thres,
-                    emit_source_category_space=emit_source_category_space,
                 )
 
                 for pred in preds:
@@ -1650,14 +1054,6 @@ def run_inference(device: str = "cuda:0",
             processed += processed_count
             if pbar is not None:
                 pbar.update(processed_count)
-            else:
-                pct_now_int = int((processed * 100) / max(len(images), 1))
-                mark = pct_now_int // progress_step
-                final_reached = processed >= len(images)
-                if mark > last_progress_mark or final_reached:
-                    bar, pct = format_progress_bar(processed, len(images))
-                    print(f"[PROGRESS] {bar} {pct:5.1f}% ({processed}/{len(images)})")
-                    last_progress_mark = mark
 
             if log_every > 0 and (processed - processed_last_log >= log_every):
                 now = time.time()
@@ -1717,10 +1113,7 @@ def run_inference(device: str = "cuda:0",
     
     print("\n    Predictions per category:")
     for cat_id, count in sorted(cat_counts.items()):
-        if emit_source_category_space:
-            cat_name = NAMES_6[cat_id - 1] if 1 <= cat_id <= len(NAMES_6) else f"unknown_{cat_id}"
-        else:
-            cat_name = NAMES_4[cat_id - 1] if 1 <= cat_id <= len(NAMES_4) else f"unknown_{cat_id}"
+        cat_name = NAMES_4[cat_id - 1] if 1 <= cat_id <= len(NAMES_4) else f"unknown_{cat_id}"
         print(f"      {cat_id}: {cat_name}: {count}")
     
     return output_path
@@ -1757,8 +1150,6 @@ Examples:
                         help="output directory (overrides the default)")
     parser.add_argument("--device", type=str, default="cuda:0",
                         help="device, e.g. cuda:0 (default: cuda:0)")
-    parser.add_argument("--emit-source-category-space", action="store_true",
-                        help="emit source/raw category names for downstream remapping")
     parser.add_argument("--no-mask-nms", action="store_true",
                         help="disable Mask NMS post-processing")
     parser.add_argument("--mask-nms-contain-thres", type=float, default=1.01,
@@ -1789,70 +1180,9 @@ Examples:
     parser.add_argument("--subset-save-list", type=str, default=None,
                         help="save the subset IDs used for this run to a JSON file")
     parser.add_argument("--export-objaware-map", action="store_true",
-                        help="export the objaware map (distance/iSDF) as .npy")
+                        help="export the objaware map (distance map) as .npy")
     parser.add_argument("--objaware-map-dir", type=str, default=None,
                         help="objaware map output directory (default: <output-dir>/objaware_maps)")
-    parser.add_argument("--isdf-refine", action="store_true",
-                        help="enable iSDF-aware post-processing (h-maxima + watershed)")
-    parser.add_argument("--isdf-sigma", type=float, default=1.0,
-                        help="iSDF smoothing sigma (default: 1.0)")
-    parser.add_argument("--isdf-h", type=float, default=2.0,
-                        help="h-maxima height threshold (default: 2.0)")
-    parser.add_argument("--isdf-min-size", type=int, default=10,
-                        help="minimum instance size in pixels after splitting (default: 10)")
-    parser.add_argument("--isdf-downscale", type=float, default=1.0,
-                        help="iSDF refine downscale factor (default: 1.0)")
-    parser.add_argument("--isdf-topk", type=int, default=0,
-                        help="refine only the top-k scoring instances (default: 0 = all)")
-    parser.add_argument("--isdf-min-area", type=int, default=0,
-                        help="refine only instances with area >= this threshold (default: 0)")
-    parser.add_argument("--isdf-min-area-by-class", type=str, default=None,
-                        help="per 6-class-ID min_area, e.g. '0:200,1:400,3:80'")
-    parser.add_argument("--isdf-refine-classes", type=str, default=None,
-                        help="refine only these 6-class IDs, e.g. '3' or '0,1,3'")
-    parser.add_argument("--isdf-post-nms", action="store_true",
-                        help="run an instance-level Mask NMS after iSDF refine")
-    parser.add_argument("--isdf-post-nms-thres", type=float, default=0.3,
-                        help="iSDF post NMS IoU threshold (default: 0.3)")
-    parser.add_argument("--isdf-post-nms-classes", type=str, default=None,
-                        help="post NMS only for these 6-class IDs, e.g. '3' or '0,1,3'")
-    parser.add_argument("--tubules-min-area", type=int, default=0,
-                        help="minimum area threshold applied only to tubules (label_6=1/2)")
-    parser.add_argument("--isdf-softmix-norm", action="store_true",
-                        help="enable SoftMix-aware normalization (default: off)")
-    parser.add_argument("--isdf-softmix-k", type=float, default=1.0,
-                        help="SoftMix map scale factor (default: 1.0)")
-    parser.add_argument("--isdf-softmix-p-lo", type=float, default=1.0,
-                        help="SoftMix normalization lower percentile (default: 1.0)")
-    parser.add_argument("--isdf-softmix-p-hi", type=float, default=99.0,
-                        help="SoftMix normalization upper percentile (default: 99.0)")
-    parser.add_argument("--isdf-h-rel", type=float, default=0.0,
-                        help="relative h threshold ratio (default: 0 = off)")
-    parser.add_argument("--isdf-seed-min", type=int, default=2,
-                        help="minimum number of seeds to trigger a split (default: 2)")
-    parser.add_argument("--isdf-seed-max", type=int, default=8,
-                        help="maximum number of seeds to trigger a split (default: 8)")
-    parser.add_argument("--isdf-seed-min-area", type=int, default=2,
-                        help="minimum seed connected-component area (default: 2)")
-    parser.add_argument("--isdf-refine-mode", type=str, default="phi",
-                        choices=["phi", "softmix", "isdf", "dt"],
-                        help="watershed terrain: phi/softmix/isdf or dt")
-    parser.add_argument("--isdf-dt-sigma", type=float, default=0.0,
-                        help="DT mode smoothing sigma (default: 0.0)")
-    parser.add_argument("--isdf-min-second-ratio", type=float, default=0.12,
-                        help="second-largest child area / parent mask area threshold (default: 0.12)")
-    parser.add_argument("--isdf-min-child-ratio", type=float, default=0.04,
-                        help="minimum child area ratio (default: 0.04)")
-    parser.add_argument("--isdf-max-children", type=int, default=4,
-                        help="maximum number of children kept per instance (default: 4)")
-    parser.add_argument("--isdf-score-gamma", type=float, default=0.65,
-                        help="child score area-decay exponent (default: 0.65)")
-    parser.add_argument("--isdf-score-floor", type=float, default=0.25,
-                        help="child score decay floor (default: 0.25)")
-    parser.add_argument("--no-tqdm", action="store_true",
-                        help="disable the scrolling progress bar, print numeric logs only")
-    parser.add_argument("--progress-step", type=int, default=5,
-                        help="static progress bar step in percent (with --no-tqdm, default: 5)")
     
     args = parser.parse_args()
 
@@ -1883,14 +1213,6 @@ Examples:
     if not MODEL_CONFIG.get("checkpoint"):
         parser.error("--checkpoint is required")
 
-    isdf_min_area_by_class = parse_kv_int_map(args.isdf_min_area_by_class)
-    refine_classes = None
-    if args.isdf_refine_classes:
-        refine_classes = {int(x) for x in str(args.isdf_refine_classes).split(',') if str(x).strip()}
-    post_nms_classes = None
-    if args.isdf_post_nms_classes:
-        post_nms_classes = {int(x) for x in str(args.isdf_post_nms_classes).split(',') if str(x).strip()}
-    
     run_inference(args.device,
                   enable_mask_nms=not args.no_mask_nms,
                   mask_nms_contain_thres=args.mask_nms_contain_thres,
@@ -1909,37 +1231,7 @@ Examples:
                   output_dir=args.output_dir,
                   export_objaware_map=args.export_objaware_map,
                   objaware_map_dir=Path(args.objaware_map_dir) if args.objaware_map_dir else None,
-                  enable_isdf_refine=args.isdf_refine,
-                  isdf_sigma=args.isdf_sigma,
-                  isdf_h=args.isdf_h,
-                  isdf_min_size=args.isdf_min_size,
-                  isdf_downscale=args.isdf_downscale,
-                  isdf_topk=args.isdf_topk,
-                  isdf_min_area=args.isdf_min_area,
-                  isdf_min_area_by_class=isdf_min_area_by_class,
-                  isdf_refine_classes=refine_classes,
-                  isdf_post_nms=args.isdf_post_nms,
-                  isdf_post_nms_thres=args.isdf_post_nms_thres,
-                  isdf_post_nms_classes=post_nms_classes,
-                  tubules_min_area=args.tubules_min_area,
-                  isdf_softmix_norm=args.isdf_softmix_norm,
-                  isdf_softmix_k=args.isdf_softmix_k,
-                  isdf_softmix_p_lo=args.isdf_softmix_p_lo,
-                  isdf_softmix_p_hi=args.isdf_softmix_p_hi,
-                  isdf_h_rel=args.isdf_h_rel,
-                  isdf_seed_min=args.isdf_seed_min,
-                  isdf_seed_max=args.isdf_seed_max,
-                  isdf_seed_min_area=args.isdf_seed_min_area,
-                  isdf_refine_mode=args.isdf_refine_mode,
-                  isdf_dt_sigma=args.isdf_dt_sigma,
-                  isdf_min_second_ratio=args.isdf_min_second_ratio,
-                  isdf_min_child_ratio=args.isdf_min_child_ratio,
-                  isdf_max_children=args.isdf_max_children,
-                  isdf_score_gamma=args.isdf_score_gamma,
-                  isdf_score_floor=args.isdf_score_floor,
-                  emit_source_category_space=args.emit_source_category_space,
-                  no_tqdm=args.no_tqdm,
-                  progress_step=args.progress_step)
+                  )
 
 
 if __name__ == "__main__":

@@ -23,7 +23,7 @@ Both branches are dropped at inference, so the inference path stays identical to
 ```bash
 cd MORI-seg
 export TEST_ROOT=/path/to/test_dataset     # test set root
-bash scripts/eval.sh --devices cuda:0,cuda:0,cuda:0,cuda:1
+bash scripts/eval.sh
 ```
 
 This runs `checkpoint/Mori_seg.pth` over the test set and writes results to `work_dirs/eval/Mori_seg/`.
@@ -63,11 +63,14 @@ Set `data_root` in the config to your COCO-format dataset (6 classes: `cap, dt, 
 #### 4-class mapping evaluation
 
 ```bash
-# default checkpoint, 4 shards (3 on cuda:0, 1 on cuda:1)
-bash scripts/eval.sh --devices cuda:0,cuda:0,cuda:0,cuda:1
+# default checkpoint, single GPU
+bash scripts/eval.sh
 
 # another checkpoint
-bash scripts/eval.sh --checkpoint path/to/epoch_100.pth --devices cuda:0
+bash scripts/eval.sh --checkpoint path/to/epoch_100.pth
+
+# shard the inference over several processes; one entry per process, a GPU may repeat
+bash scripts/eval.sh --devices cuda:0,cuda:1
 ```
 
 The 6 training classes are mapped to 4 evaluation classes (`cap → glomeruli`, `dt, pt → tubules`, `ptc → peritubular-capillaries`, `ves → arteries`, `tuft` dropped); 10x images are scored for glomeruli / tubules / arteries and 40x images for ptc. Mapping rules are in `mori_seg/eval/category_spaces.json`.
@@ -82,6 +85,8 @@ Everything is written to the output directory, by default `work_dirs/eval/<check
 | `<name>_shard{0..N}_predictions.ndjson` | per-shard predictions; safe to delete once merged |
 | `coco_stdout.txt` | the raw COCOeval summary table |
 | `logs/infer_shard*.log`, `logs/eval.log` | inference and evaluation logs |
+
+Intermediate maps can be exported for visualisation: pass `--export-objaware-map` (and optionally `--objaware-map-dir`) to `mori_seg/eval/inference.py` to dump the per-pixel distance, embedding and boundary maps predicted by the auxiliary branches.
 
 The console prints the COCOeval table, the overall mAP / AP50 / AP75, and the per-class semantic IoU / Dice and F1.
 
