@@ -20,13 +20,62 @@ Both branches are dropped at inference, so the inference path stays identical to
 
 ## Quick Start
 
+Evaluating the released weights on a test set takes four steps.
+
+**1. Get the code and the environment.** See [Installation](#installation) for the full dependency list; in short, an MMDetection 3.3.0 environment.
+
 ```bash
+git clone <REPO_URL> MORI-seg
 cd MORI-seg
-export TEST_ROOT=/path/to/test_dataset     # test set root
+conda activate mori-seg
+```
+
+**2. Get the weights.** Download `Mori_seg.pth` (see [Model](#model)) and put it where the scripts expect it:
+
+```bash
+mkdir -p checkpoint
+mv /path/to/Mori_seg.pth checkpoint/Mori_seg.pth
+```
+
+**3. Point `TEST_ROOT` at the test set.** It must be COCO-format and laid out like this, where `test.json` lists the images to run on and `test_instance.json` holds the ground truth used for scoring:
+
+```
+$TEST_ROOT/
+├── annotations/
+│   ├── test.json
+│   └── test_instance.json
+└── images/test/
+```
+
+```bash
+export TEST_ROOT=/path/to/test_dataset
+```
+
+**4. Run the evaluation.**
+
+```bash
 bash scripts/eval.sh
 ```
 
-This runs `checkpoint/Mori_seg.pth` over the test set and writes results to `work_dirs/eval/Mori_seg/`.
+The script shards inference over the test images, merges the shard predictions and scores them in the 4-class space. Progress is printed per shard; a full run of ~9k images takes roughly an hour on a single GPU. Results land in `work_dirs/eval/Mori_seg/`:
+
+```bash
+python -c "import json,sys;d=json.load(open(sys.argv[1]))['segm'];print(d['overall']);print({k:round(v['AP'],4) for k,v in d['per_class'].items()})" \
+  work_dirs/eval/Mori_seg/eval_results_mori_seg.json
+```
+
+Useful variations:
+
+```bash
+# split inference across processes / GPUs, one comma-separated device per process
+bash scripts/eval.sh --devices <DEV>,<DEV>
+
+# evaluate a checkpoint of your own
+bash scripts/eval.sh --checkpoint path/to/your.pth
+
+# mixed precision: faster, with tiny numerical differences
+bash scripts/eval.sh --amp
+```
 
 ## Installation
 
