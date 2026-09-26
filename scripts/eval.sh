@@ -3,12 +3,12 @@
 #
 # Usage (run from anywhere; relative paths resolve against the repository root):
 #   bash scripts/eval.sh [--checkpoint CKPT] [--config CFG] [--out-dir DIR] \
-#        [--devices cuda:0,cuda:0,cuda:0,cuda:1] [--amp] [--contain-thres VAL]
+#        [--devices DEV[,DEV...]] [--amp] [--contain-thres VAL]
 #
 #   --checkpoint    default checkpoint/Mori_seg.pth
 #   --config        default configs/mori_seg.py
 #   --out-dir       default work_dirs/eval/<checkpoint name>
-#   --devices       one shard process per entry, a GPU may repeat; ~2.1GB VRAM each
+#   --devices       comma-separated devices; one shard process per entry, a device may repeat
 #   --amp           enable mixed-precision inference (off by default)
 #   --contain-thres Mask NMS containment-dedup threshold; 1.01 disables the rule
 #

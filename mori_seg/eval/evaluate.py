@@ -11,7 +11,6 @@ import io
 import json
 import os
 import re
-import shutil
 import tempfile
 from collections import defaultdict
 from contextlib import redirect_stdout
@@ -678,7 +677,6 @@ def evaluate_model(
     device=None,
     category_space_name=None,
     category_space_cfg=None,
-    eval_dir=None,
     final_pred_path=None,
 ):
     print("=" * 80)
@@ -699,8 +697,6 @@ def evaluate_model(
         return None
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    eval_output_dir = Path(eval_dir or (out_dir / "eval"))
-    eval_output_dir.mkdir(parents=True, exist_ok=True)
     print("\n[1] Loading data...")
     predictions = load_ndjson(pred_path)
     coco_gt_all = COCO(str(gt_json))
@@ -739,11 +735,8 @@ def evaluate_model(
             segm_overall, segm_per_class, coco_stdout = capture_coco_eval(coco_gt, predictions, img_mag_map, category_space_cfg=category_space_cfg)
             if coco_stdout:
                 print(coco_stdout, end="" if coco_stdout.endswith("\n") else "\n")
-                coco_stdout_path = eval_output_dir / "coco_stdout.txt"
+                coco_stdout_path = out_dir / "coco_stdout.txt"
                 coco_stdout_path.write_text(coco_stdout, encoding="utf-8")
-                legacy_coco_stdout_path = out_dir / "coco_stdout.txt"
-                if legacy_coco_stdout_path != coco_stdout_path:
-                    legacy_coco_stdout_path.write_text(coco_stdout, encoding="utf-8")
             if segm_overall:
                 print(f"\nOverall mAP@[.50:.95]: {segm_overall['mAP']:.4f}")
                 print(f"    Overall AP50: {segm_overall['AP50']:.4f}")
@@ -782,21 +775,14 @@ def evaluate_model(
 
         print("\n[6] Saving detailed metrics...")
         per_image_results = collect_per_image_metrics(coco_gt, per_image_iou, per_image_f1, img_mag_map, gt_data["categories"])
-        csv_output_path = eval_output_dir / "per_image_metrics.csv"
-        legacy_csv_output_path_root = out_dir / "per_image_metrics.csv"
-        legacy_csv_output_path = out_dir / f"per_image_metrics_{model_name}.csv"
+        csv_output_path = out_dir / f"per_image_metrics_{model_name}.csv"
         save_per_image_results_to_csv(per_image_results, csv_output_path, gt_data["categories"])
-        if legacy_csv_output_path_root != csv_output_path:
-            shutil.copyfile(csv_output_path, legacy_csv_output_path_root)
-        if legacy_csv_output_path != csv_output_path:
-            shutil.copyfile(csv_output_path, legacy_csv_output_path)
 
         output = {
             "model": model_name,
             "pred_file": str(pred_path),
             "final_pred_file": str(final_pred_path or pred_path),
             "output_dir": str(out_dir),
-            "eval_output_dir": str(eval_output_dir),
             "gt_json": str(gt_json),
             "gpu_accelerated": device is not None,
             "image_count": len(coco_gt.getImgIds()),
@@ -807,14 +793,8 @@ def evaluate_model(
             "semantic_iou": semantic_iou_results,
             "f1": f1_results,
         }
-        result_json_path = eval_output_dir / "eval_results.json"
-        legacy_result_json_path_root = out_dir / "eval_results.json"
-        legacy_result_json_path = out_dir / f"eval_results_{model_name}.json"
+        result_json_path = out_dir / f"eval_results_{model_name}.json"
         write_json_file(result_json_path, output)
-        if legacy_result_json_path_root != result_json_path:
-            write_json_file(legacy_result_json_path_root, output)
-        if legacy_result_json_path != result_json_path:
-            write_json_file(legacy_result_json_path, output)
         print(f"\n[OK] results saved: {result_json_path}")
         return output
     finally:
@@ -862,23 +842,6 @@ def print_results_table(result):
         print(f"  {cat}: IoU={iou:.4f}, Dice={dice:.4f}")
 
 
-def build_stage_dirs(output_root):
-    output_root = Path(output_root)
-    stage_dirs = {
-        "root": output_root,
-        "infer": output_root / "infer",
-        "transfer": output_root / "transfer",
-        "postprocess": output_root / "postprocess",
-        "final": output_root / "final",
-        "eval": output_root / "eval",
-    }
-    output_root.mkdir(parents=True, exist_ok=True)
-    for key, path in stage_dirs.items():
-        if key != "root":
-            path.mkdir(parents=True, exist_ok=True)
-    return stage_dirs
-
-
 def resolve_eval_request(args):
     gt_json = resolve_path_arg(getattr(args, "gt_json", None)) or DEFAULT_GT_JSON
     config_path = resolve_path_arg(getattr(args, "config", None))
@@ -890,23 +853,21 @@ def resolve_eval_request(args):
         fallback_name = getattr(args, "model_name", None) or "unknown_model"
         output_dir = WORKSPACE_ROOT / "work_dirs/eval" / fallback_name
 
-    stage_dirs = build_stage_dirs(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     category_spaces_path = resolve_path_arg(getattr(args, "category_spaces_json", None)) or DEFAULT_CATEGORY_SPACES_PATH
     category_spaces = load_category_spaces(category_spaces_path)
     requested_category_space = getattr(args, "category_space", None) or DEFAULT_CATEGORY_SPACE_NAME
     category_space_name, category_space_cfg = resolve_category_space(category_spaces, requested_category_space)
 
-    eval_output_dir = stage_dirs["eval"]
-
     final_pred_override = resolve_path_arg(getattr(args, "final_pred", None))
     if final_pred_override is not None:
         final_pred_path = final_pred_override
     else:
-        final_pred_path = stage_dirs["final"] / "predictions.ndjson"
+        final_pred_path = output_dir / "predictions.ndjson"
     final_pred_path.parent.mkdir(parents=True, exist_ok=True)
 
-    pred_search_bases = [stage_dirs["final"], stage_dirs["postprocess"], stage_dirs["transfer"], stage_dirs["infer"], output_dir]
+    pred_search_bases = [output_dir]
     source_pred_path = None
     inferred_model_name = None
 
@@ -945,18 +906,16 @@ def resolve_eval_request(args):
         category_spaces_json=category_spaces_path,
         verbose=True,
     )
-    write_json_file(final_pred_path.parent / "validation_summary.json", final_validation)
+    write_json_file(output_dir / "validation_summary.json", final_validation)
 
     return {
         "model_name": model_name,
         "pred_path": Path(pred_path),
         "output_dir": output_dir,
-        "stage_dirs": stage_dirs,
         "gt_json": Path(gt_json),
         "category_space_name": category_space_name,
         "category_space_cfg": category_space_cfg,
         "category_spaces_path": category_spaces_path,
-        "eval_output_dir": Path(eval_output_dir),
         "final_pred_path": Path(final_pred_path),
         "final_validation": final_validation,
         "config_path": config_path,
@@ -1003,7 +962,6 @@ def main(argv=None):
         device=device,
         category_space_name=request["category_space_name"],
         category_space_cfg=request["category_space_cfg"],
-        eval_dir=request["eval_output_dir"],
         final_pred_path=request["final_pred_path"],
     )
     print_results_table(result)

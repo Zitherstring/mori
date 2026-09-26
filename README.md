@@ -68,10 +68,9 @@ bash scripts/eval.sh
 
 # another checkpoint
 bash scripts/eval.sh --checkpoint path/to/epoch_100.pth
-
-# shard the inference over several processes; one entry per process, a GPU may repeat
-bash scripts/eval.sh --devices cuda:0,cuda:1
 ```
+
+Inference can be sharded over several processes with `--devices`, taking one comma-separated device per process.
 
 The 6 training classes are mapped to 4 evaluation classes (`cap → glomeruli`, `dt, pt → tubules`, `ptc → peritubular-capillaries`, `ves → arteries`, `tuft` dropped); 10x images are scored for glomeruli / tubules / arteries and 40x images for ptc. Mapping rules are in `mori_seg/eval/category_spaces.json`.
 

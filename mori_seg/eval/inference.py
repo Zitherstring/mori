@@ -1134,8 +1134,8 @@ Examples:
     # faster: disable Mask NMS
     python inference.py ... --workers 8 --no-mask-nms
     
-    # select GPU
-    python inference.py ... --device cuda:1
+    # select a device
+    python inference.py ... --device DEVICE
         """
     )
     parser.add_argument("--config", type=str, default=None,
