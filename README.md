@@ -57,12 +57,9 @@ export TEST_ROOT=/path/to/test_dataset
 bash scripts/eval.sh
 ```
 
-The script shards inference over the test images, merges the shard predictions and scores them in the 4-class space. Progress is printed per shard; a full run of ~9k images takes roughly an hour on a single GPU. Results land in `work_dirs/eval/Mori_seg/`:
+The script shards inference over the test images, merges the shard predictions and scores them in the 4-class space. Progress is printed per shard; a full run of ~9k images takes roughly an hour on a single GPU.
 
-```bash
-python -c "import json,sys;d=json.load(open(sys.argv[1]))['segm'];print(d['overall']);print({k:round(v['AP'],4) for k,v in d['per_class'].items()})" \
-  work_dirs/eval/Mori_seg/eval_results_mori_seg.json
-```
+When it finishes it prints the overall mAP / AP50 / AP75 followed by per-category AP, F1 and semantic IoU. The same numbers, plus per-image metrics and the raw predictions, are written to `work_dirs/eval/Mori_seg/` (see [Evaluation](#evaluation)).
 
 Useful variations:
 
