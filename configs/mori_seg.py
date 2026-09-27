@@ -255,7 +255,6 @@ param_scheduler = [
 ]
 randomness = dict(deterministic=False, seed=42)
 resume = False
-stage2_num_epochs = 20
 test_cfg = dict(type='TestLoop')
 test_dataloader = dict(
     batch_size=1,
@@ -554,48 +553,6 @@ train_pipeline = [
         1,
         1,
     ), type='FilterAnnotations'),
-    dict(type='PackDetInputs'),
-]
-train_pipeline_stage2 = [
-    dict(backend_args=None, type='LoadImageFromFile'),
-    dict(
-        poly2mask=False,
-        type='LoadAnnotations',
-        with_bbox=True,
-        with_mask=True),
-    dict(
-        keep_ratio=True,
-        ratio_range=(
-            0.1,
-            2.0,
-        ),
-        scale=(
-            640,
-            640,
-        ),
-        type='RandomResize'),
-    dict(
-        allow_negative_crop=True,
-        crop_size=(
-            640,
-            640,
-        ),
-        recompute_bbox=True,
-        type='RandomCrop'),
-    dict(min_gt_bbox_wh=(
-        1,
-        1,
-    ), type='FilterAnnotations'),
-    dict(type='YOLOXHSVRandomAug'),
-    dict(prob=0.5, type='RandomFlip'),
-    dict(pad_val=dict(img=(
-        114,
-        114,
-        114,
-    )), size=(
-        640,
-        640,
-    ), type='Pad'),
     dict(type='PackDetInputs'),
 ]
 val_cfg = dict(type='ValLoop')

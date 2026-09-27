@@ -65,11 +65,6 @@ os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
 
-# Optional local mmdetection checkout (set MMDET_ROOT to prepend it to sys.path)
-_MMDET_ROOT = os.environ.get("MMDET_ROOT")
-if _MMDET_ROOT:
-    sys.path.insert(0, _MMDET_ROOT)
-
 import torch
 from mmdet.apis import init_detector
 from mmdet.utils import get_test_pipeline_cfg
@@ -85,20 +80,17 @@ GT_JSON = None
 IMG_ROOT = None
 # Default output directory (override with --output-dir)
 OUT_DIR = Path(__file__).parent / "results"
-# Root directory holding mmdetection work_dirs (override with MMDET_WORK_DIRS)
-WORK_DIRS_ROOT = Path(os.environ.get("MMDET_WORK_DIRS", "work_dirs"))
+# Default root for outputs when --output-dir is not given
+WORK_DIRS_ROOT = Path("work_dirs")
 
 # ==================== Model ====================
 MODEL_CONFIG = {
     "config": "",
     "checkpoint": "",
-    "output_name": "rtmdet-ins_l",
+    "output_name": "",
 }
 
 # ==================== Categories ====================
-# 6 class names (training model)
-NAMES_6 = ["cap", "dt", "pt", "ptc", "tuft", "ves"]
-
 # 4 class names (evaluation GT)
 NAMES_4 = ["arteries_arterioles", "non-globally-sclerotic_glomeruli", "peritubular-capillaries", "tubules"]
 
