@@ -13,13 +13,6 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CATEGORY_SPACES_PATH = Path(__file__).with_name("category_spaces.json")
 DEFAULT_CATEGORY_ORDER = [
-    "0_2_podocyte",
-    "1_2_mesangial",
-    "1_6_2_mv",
-    "2_2_endo",
-    "2_4_2_smooth",
-    "2_5_2_vesselendo",
-    "3_2_pecs",
     "arteries_arterioles",
     "non-globally-sclerotic_glomeruli",
     "peritubular-capillaries",
@@ -27,25 +20,11 @@ DEFAULT_CATEGORY_ORDER = [
 ]
 DEFAULT_CATEGORY_SPACE_NAME = "core4"
 CLASSES_10X_NAMES = {
-    "0_2_podocyte",
-    "1_2_mesangial",
-    "1_6_2_mv",
-    "2_2_endo",
-    "2_4_2_smooth",
-    "2_5_2_vesselendo",
-    "3_2_pecs",
     "arteries_arterioles",
     "non-globally-sclerotic_glomeruli",
     "tubules",
 }
 CLASSES_40X_NAMES = {
-    "0_2_podocyte",
-    "1_2_mesangial",
-    "1_6_2_mv",
-    "2_2_endo",
-    "2_4_2_smooth",
-    "2_5_2_vesselendo",
-    "3_2_pecs",
     "peritubular-capillaries",
 }
 
