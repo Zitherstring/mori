@@ -104,24 +104,9 @@ Download the pretrained weights from [Google Drive](https://drive.google.com/fil
 
 ## Data
 
-Both training and evaluation read COCO-format instance annotations. Segmentations may be polygons or RLE; the training pipeline keeps them as polygons (`poly2mask=False`).
+Training and evaluation both read COCO-format instance annotations. Segmentations may be polygons or RLE.
 
-#### Classes
-
-The model is trained on six renal structures and evaluated on four, because two tubule subtypes are merged and the glomerular tuft is not part of the evaluation space:
-
-| Training class | Meaning | Evaluation class |
-|---|---|---|
-| `cap` | glomerular capsule | `non-globally-sclerotic_glomeruli` |
-| `dt` | distal tubule | `tubules` |
-| `pt` | proximal tubule | `tubules` |
-| `ptc` | peritubular capillary | `peritubular-capillaries` |
-| `tuft` | glomerular tuft | dropped |
-| `ves` | vessel / artery | `arteries_arterioles` |
-
-Training annotations use the six class names above, in this order (`category_id` 1-6). Evaluation ground truth uses the four evaluation class names. The mapping lives in `mori_seg/eval/category_spaces.json`.
-
-#### Training set
+Training set, with `data_root` set in `configs/mori_seg.py`:
 
 ```
 <data_root>/
@@ -132,9 +117,7 @@ Training annotations use the six class names above, in this order (`category_id`
 └── val/images/
 ```
 
-`data_root` is set in `configs/mori_seg.py`; `file_name` in each JSON is resolved relative to the matching `images/` directory. Images with no annotations, and images smaller than 32px, are skipped during training. Inputs are resized to 640x640 (`keep_ratio=True`) with padding.
-
-#### Test set
+Test set, pointed at by `TEST_ROOT`:
 
 ```
 $TEST_ROOT/
@@ -144,16 +127,7 @@ $TEST_ROOT/
 └── images/test/
 ```
 
-`test.json` only needs the `images` entries (`id`, `file_name`, `width`, `height`); `test_instance.json` additionally needs `annotations` and `categories` in the four-class space.
-
-#### Magnification
-
-Evaluation is magnification-aware: 10x images are scored for arteries, glomeruli and tubules, 40x images only for peritubular capillaries. The magnification is read from `file_name`, which must therefore encode it in one of two ways:
-
-- a prefix, `10x/...` or `40x/...`
-- a size suffix, `..._2048x2048.png` for 10x or `..._512x512.png` for 40x
-
-Anything else counts as `unknown` and is scored against all four classes.
+`test.json` only needs the `images` entries (`id`, `file_name`, `width`, `height`); `test_instance.json` additionally needs `annotations` and `categories`.
 
 ## Training
 
