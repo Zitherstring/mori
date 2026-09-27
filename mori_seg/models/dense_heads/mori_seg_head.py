@@ -1,5 +1,5 @@
 # Copyright (c) OpenMMLab. All rights reserved.
-"""MORI-seg: auxiliary RTMDet-Ins head.
+"""MORI-Seg instance segmentation head.
 
 Reference: "Instance Segmentation of Biomedical Images with an
 Object-aware Embedding Learned with Local Constraints" (arXiv:2004.09821)
@@ -217,13 +217,6 @@ class MORISegHead(RTMDetInsSepBNHead):
         self.register_buffer('_aux_boundary_iter',
                              torch.tensor(0, dtype=torch.long),
                              persistent=True)
-
-    def _load_from_state_dict(self, state_dict, prefix, *args, **kwargs):
-        """Accept checkpoints that still use the legacy ``objaware_`` prefix."""
-        legacy = [k for k in state_dict if k.startswith(prefix) and 'objaware' in k]
-        for key in legacy:
-            state_dict[key.replace('objaware', 'aux')] = state_dict.pop(key)
-        return super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
 
     def loss_by_feat(self,
                      cls_scores: List[Tensor],

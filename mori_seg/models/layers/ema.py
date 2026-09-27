@@ -1,5 +1,5 @@
 # Copyright (c) OpenMMLab. All rights reserved.
-"""ExpMomentumEMA variant used by MORI-seg.
+"""ExpMomentumEMA variant used by MORI-Seg.
 
 Stock mmdet updates the average with ``mul_(1 - m).add_(src, alpha=m)``;
 this variant uses ``lerp_(src, m)``. The two are mathematically equivalent

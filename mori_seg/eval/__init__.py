@@ -1,1 +1,1 @@
-"""Evaluation pipeline for MORI-seg."""
+"""Evaluation pipeline for MORI-Seg."""

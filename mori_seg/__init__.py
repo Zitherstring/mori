@@ -1,4 +1,4 @@
-"""MORI-seg: Object-Aware RTMDet-Ins modules for stock mmdet 3.3.0.
+"""MORI-Seg modules for stock mmdet 3.3.0.
 
 Registered in a config through ``custom_imports = dict(imports=['mori_seg'])``.
 """

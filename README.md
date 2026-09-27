@@ -25,8 +25,8 @@ Evaluating the released weights on a test set takes four steps.
 **1. Get the code and the environment.** See [Installation](#installation) for the full dependency list; in short, an MMDetection 3.3.0 environment.
 
 ```bash
-git clone https://github.com/Zitherstring/mori.git MORI-seg
-cd MORI-seg
+git clone https://github.com/Zitherstring/mori.git MORI-Seg
+cd MORI-Seg
 conda activate mori-seg
 ```
 

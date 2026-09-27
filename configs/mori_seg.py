@@ -1,4 +1,4 @@
-# MORI-seg: Object-Aware RTMDet-Ins-L, 100 epochs from the COCO pretrained checkpoint.
+# MORI-Seg, 100 epochs from the COCO pretrained checkpoint.
 # Set `data_root` below to your COCO-format dataset (6 classes: cap, dt, pt, ptc, tuft, ves).
 custom_imports = dict(imports=['mori_seg'], allow_failed_imports=False)
 auto_scale_lr = dict(base_batch_size=256, enable=True)

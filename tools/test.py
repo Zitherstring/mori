@@ -4,7 +4,7 @@ import os
 import os.path as osp
 import sys
 
-# MORI-seg: put the repository root on sys.path so custom_imports=['mori_seg'] resolves
+# MORI-Seg: put the repository root on sys.path so custom_imports=['mori_seg'] resolves
 sys.path.insert(0, osp.abspath(osp.join(osp.dirname(__file__), '..')))
 import warnings
 from copy import deepcopy
