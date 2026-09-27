@@ -243,11 +243,11 @@ class MORISegHead(RTMDetInsSepBNHead):
             batch_img_metas,
             batch_gt_instances_ignore)
 
-        aux = self._compute_object_aware_loss(mask_feat, batch_gt_instances)
+        aux = self._compute_aux_loss(mask_feat, batch_gt_instances)
         losses.update(aux)
         return losses
 
-    def _compute_object_aware_loss(self, mask_feat: Tensor,
+    def _compute_aux_loss(self, mask_feat: Tensor,
                                    batch_gt_instances: InstanceList) -> Dict[str, Tensor]:
         """Compute auxiliary auxiliary losses on mask feature map."""
         self._aux_iter += 1

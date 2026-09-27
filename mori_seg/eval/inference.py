@@ -43,7 +43,6 @@ import re
 import signal
 import argparse
 import json
-import glob
 import time
 import random
 import multiprocessing as mp
@@ -72,10 +71,9 @@ if _MMDET_ROOT:
     sys.path.insert(0, _MMDET_ROOT)
 
 import torch
-from mmdet.apis import init_detector, inference_detector
+from mmdet.apis import init_detector
 from mmdet.utils import get_test_pipeline_cfg
 from mmcv.transforms import Compose
-from mmengine.structures import InstanceData
 from pycocotools import mask as maskUtils
 from pycocotools.coco import COCO
 
@@ -570,7 +568,6 @@ def process_single_result(result, image_id: int, img_info: dict, magnification: 
     for i in range(len(scores)):
         score = float(scores[i])
         label_6 = int(labels[i])
-        source_name = NAMES_6[label_6] if 0 <= label_6 < len(NAMES_6) else f"class_{label_6}"
         
         # 1. Per-class score threshold
         class_score_thres = PER_CLASS_SCORE_THRES.get(label_6, SCORE_THRES)

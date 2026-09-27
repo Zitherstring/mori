@@ -68,7 +68,7 @@ custom_hooks = [
         save_last=False,
         type='CheckpointHook'),
 ]
-data_root = 'data/KI_82/'
+data_root = 'data/'
 dataset_type = 'CocoDataset'
 default_hooks = dict(
     checkpoint=dict(
@@ -263,7 +263,7 @@ test_dataloader = dict(
         ann_file='annotations/val.json',
         backend_args=None,
         data_prefix=dict(img='val/images/'),
-        data_root='data/KI_82/',
+        data_root='data/',
         metainfo=dict(
             classes=(
                 'cap',
@@ -340,7 +340,7 @@ test_dataloader = dict(
     persistent_workers=True,
     sampler=dict(shuffle=False, type='DefaultSampler'))
 test_evaluator = dict(
-    ann_file='data/KI_82/annotations/val.json',
+    ann_file='data/annotations/val.json',
     backend_args=None,
     format_only=False,
     metric=[
@@ -381,7 +381,7 @@ train_dataloader = dict(
         ann_file='annotations/train.json',
         backend_args=None,
         data_prefix=dict(img='train/images/'),
-        data_root='data/KI_82/',
+        data_root='data/',
         filter_cfg=dict(filter_empty_gt=True, min_size=32),
         metainfo=dict(
             classes=(
@@ -605,7 +605,7 @@ val_dataloader = dict(
         ann_file='annotations/val.json',
         backend_args=None,
         data_prefix=dict(img='val/images/'),
-        data_root='data/KI_82/',
+        data_root='data/',
         metainfo=dict(
             classes=(
                 'cap',
@@ -682,7 +682,7 @@ val_dataloader = dict(
     persistent_workers=True,
     sampler=dict(shuffle=False, type='DefaultSampler'))
 val_evaluator = dict(
-    ann_file='data/KI_82/annotations/val.json',
+    ann_file='data/annotations/val.json',
     backend_args=None,
     format_only=False,
     metric=[

@@ -15,7 +15,6 @@ import tempfile
 from collections import defaultdict
 from contextlib import redirect_stdout
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 
 import numpy as np
 from pycocotools import mask as maskUtils
