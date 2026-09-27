@@ -675,8 +675,8 @@ def run_inference(device: str = "cuda:0",
                   subset_seed: int = 42,
                   subset_save_list: Path = None,
                   output_dir: Path = None,
-                  export_objaware_map: bool = False,
-                  objaware_map_dir: Path = None,
+                  export_aux_map: bool = False,
+                  aux_map_dir: Path = None,
                   mask_nms_contain_thres: float = 0.85,
                   ):
     """
@@ -686,7 +686,7 @@ def run_inference(device: str = "cuda:0",
     ENABLE_MASK_NMS = enable_mask_nms
     _interrupted = False
 
-    # objaware map output directory (created once OUT_DIR is resolved)
+    # aux map output directory (created once OUT_DIR is resolved)
     map_dir = None
     
     signal.signal(signal.SIGINT, signal_handler)
@@ -712,7 +712,7 @@ def run_inference(device: str = "cuda:0",
     print(f"AMP: {'on' if use_amp else 'off'}")
     print(f"Log interval: every {log_every} images")
     print(f"Shard: {shard_id}/{num_shards}")
-    print(f"Export ObjAware map: {'on' if export_objaware_map else 'off'}")
+    print(f"Export Aux map: {'on' if export_aux_map else 'off'}")
     if subset_image_list is not None:
         print(f"Subset list: {subset_image_list}")
     else:
@@ -755,8 +755,8 @@ def run_inference(device: str = "cuda:0",
     print(f"Output dir: {OUT_DIR}")
     print(f"Output name: {output_name}")
 
-    if export_objaware_map:
-        map_dir = Path(objaware_map_dir) if objaware_map_dir is not None else OUT_DIR / "objaware_maps"
+    if export_aux_map:
+        map_dir = Path(aux_map_dir) if aux_map_dir is not None else OUT_DIR / "aux_maps"
         map_dir.mkdir(parents=True, exist_ok=True)
     
     # Load model
@@ -1016,20 +1016,20 @@ def run_inference(device: str = "cuda:0",
                 magnification = item["magnification"]
                 img_info = item["img_info"]
 
-                # Optionally export the objaware map (distance map)
-                if export_objaware_map:
+                # Optionally export the aux map (distance map)
+                if export_aux_map:
                     pred_instances = getattr(result, "pred_instances", None)
                     if pred_instances is not None:
-                        obj_map = getattr(pred_instances, "objaware_map", None)
-                        kind = getattr(pred_instances, "objaware_map_kind", None)
+                        obj_map = getattr(pred_instances, "aux_map", None)
+                        kind = getattr(pred_instances, "aux_map_kind", None)
                         if obj_map is None and hasattr(pred_instances, "metainfo"):
-                            obj_map = pred_instances.metainfo.get("objaware_map", None)
-                            kind = pred_instances.metainfo.get("objaware_map_kind", kind)
+                            obj_map = pred_instances.metainfo.get("aux_map", None)
+                            kind = pred_instances.metainfo.get("aux_map_kind", kind)
                     if obj_map is not None:
                         obj_map = obj_map.detach().cpu().numpy()
-                        kind = kind or "objaware"
+                        kind = kind or "aux"
                         safe_name = item["file_name"].replace("/", "_").replace("\\", "_")
-                        map_path = map_dir / f"{safe_name}_objaware_{kind}.npy"
+                        map_path = map_dir / f"{safe_name}_aux_{kind}.npy"
                         np.save(map_path, obj_map)
 
                 preds = process_single_result(
@@ -1179,10 +1179,10 @@ Examples:
                         help="subset sampling random seed")
     parser.add_argument("--subset-save-list", type=str, default=None,
                         help="save the subset IDs used for this run to a JSON file")
-    parser.add_argument("--export-objaware-map", action="store_true",
-                        help="export the objaware map (distance map) as .npy")
-    parser.add_argument("--objaware-map-dir", type=str, default=None,
-                        help="objaware map output directory (default: <output-dir>/objaware_maps)")
+    parser.add_argument("--export-aux-map", action="store_true",
+                        help="export the aux map (distance map) as .npy")
+    parser.add_argument("--aux-map-dir", type=str, default=None,
+                        help="aux map output directory (default: <output-dir>/aux_maps)")
     
     args = parser.parse_args()
 
@@ -1229,8 +1229,8 @@ Examples:
                   subset_seed=args.subset_seed,
                   subset_save_list=Path(args.subset_save_list) if args.subset_save_list else None,
                   output_dir=args.output_dir,
-                  export_objaware_map=args.export_objaware_map,
-                  objaware_map_dir=Path(args.objaware_map_dir) if args.objaware_map_dir else None,
+                  export_aux_map=args.export_aux_map,
+                  aux_map_dir=Path(args.aux_map_dir) if args.aux_map_dir else None,
                   )
 
 

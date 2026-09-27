@@ -134,7 +134,7 @@ Everything is written to the output directory, by default `work_dirs/eval/<check
 | `coco_stdout.txt` | the raw COCOeval summary table |
 | `logs/infer_shard*.log`, `logs/eval.log` | inference and evaluation logs |
 
-Intermediate maps can be exported for visualisation: pass `--export-objaware-map` (and optionally `--objaware-map-dir`) to `mori_seg/eval/inference.py` to dump the per-pixel distance, embedding and boundary maps predicted by the auxiliary branches.
+Intermediate maps can be exported for visualisation: pass `--export-aux-map` (and optionally `--aux-map-dir`) to `mori_seg/eval/inference.py` to dump the per-pixel distance, embedding and boundary maps predicted by the auxiliary branches.
 
 The console prints the COCOeval table, the overall mAP / AP50 / AP75, and the per-class semantic IoU / Dice and F1.
 

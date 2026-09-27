@@ -1,3 +1,3 @@
-from .object_aware_rtmdet_ins_head import MORIObjectAwareRTMDetInsSepBNHead
+from .mori_seg_head import MORISegHead
 
-__all__ = ['MORIObjectAwareRTMDetInsSepBNHead']
+__all__ = ['MORISegHead']

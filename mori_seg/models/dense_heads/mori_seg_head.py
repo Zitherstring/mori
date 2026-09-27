@@ -1,5 +1,5 @@
 # Copyright (c) OpenMMLab. All rights reserved.
-"""MORI-seg: Object-Aware RTMDet-Ins head.
+"""MORI-seg: auxiliary RTMDet-Ins head.
 
 Reference: "Instance Segmentation of Biomedical Images with an
 Object-aware Embedding Learned with Local Constraints" (arXiv:2004.09821)
@@ -11,7 +11,7 @@ Training-only auxiliary supervision on the mask feature:
 
 The detection and segmentation inference path is identical to the stock
 RTMDetInsSepBNHead; the auxiliary branches are used by the loss only.
-Registered as ``MORIObjectAwareRTMDetInsSepBNHead``; requires stock mmdet 3.3.0.
+Registered as ``MORISegHead``; requires stock mmdet 3.3.0.
 """
 
 import math
@@ -33,17 +33,17 @@ from mmdet.utils import InstanceList, OptInstanceList
 
 
 @MODELS.register_module()
-class MORIObjectAwareRTMDetInsSepBNHead(RTMDetInsSepBNHead):
-    """RTMDet-Ins SepBN head + Object-Aware auxiliary branches.
+class MORISegHead(RTMDetInsSepBNHead):
+    """RTMDet-Ins SepBN head + auxiliary auxiliary branches.
 
     The detection and instance mask branches behave exactly as in
     RTMDetInsSepBNHead; the auxiliary branches are training-only and do not
     change the inference output interface.
 
     Auxiliary losses:
-        loss_objaware = warmup * (lambda_reg * L_reg
+        loss_aux = warmup * (lambda_reg * L_reg
                                   + lambda_emb * (L_con + lambda_dis * L_dis))
-        loss_objaware_boundary = boundary_warmup * boundary_loss_weight * L_bnd
+        loss_aux_boundary = boundary_warmup * boundary_loss_weight * L_bnd
 
         where
         - L_reg: distance regression (pixel to nearest boundary, normalized)
@@ -52,171 +52,178 @@ class MORIObjectAwareRTMDetInsSepBNHead(RTMDetInsSepBNHead):
         - L_bnd: boundary band BCE / focal BCE
 
     Args:
-        objaware_embedding_dim (int): Embedding dimension D. Default 16.
-        objaware_hidden_channels (int): Hidden channels of the auxiliary branches. Default 32.
-        lambda_objaware_reg (float): Weight of L_reg. Default 1.0.
-        lambda_objaware_emb (float): Overall weight of the embedding terms. Default 5.0.
-        lambda_objaware_dis (float): Coefficient of L_dis inside the embedding term. Default 1.0.
+        aux_embedding_dim (int): Embedding dimension D. Default 16.
+        aux_hidden_channels (int): Hidden channels of the auxiliary branches. Default 32.
+        lambda_aux_reg (float): Weight of L_reg. Default 1.0.
+        lambda_aux_emb (float): Overall weight of the embedding terms. Default 5.0.
+        lambda_aux_dis (float): Coefficient of L_dis inside the embedding term. Default 1.0.
         neighbor_distance (float): Neighbourhood threshold d.
         neighbor_distance_is_input (bool): If True, d is given in input-image
             pixels and is rescaled to the mask-feature stride automatically.
-        objaware_local_constraint (bool): If True, apply L_dis to neighbouring
+        aux_local_constraint (bool): If True, apply L_dis to neighbouring
             instances only; otherwise apply it globally.
-        objaware_same_class_only (bool): If True, apply L_dis only between
+        aux_same_class_only (bool): If True, apply L_dis only between
             instances of the same class.
-        objaware_include_background (bool): Whether background takes part in
+        aux_include_background (bool): Whether background takes part in
             the embedding terms as an extra "object".
-        objaware_min_instance_pixels (int): Minimum instance size, in pixels,
+        aux_min_instance_pixels (int): Minimum instance size, in pixels,
             after downsampling to the mask-feature resolution.
-        objaware_balance_reg_fg_bg (bool): Whether L_reg balances foreground
+        aux_balance_reg_fg_bg (bool): Whether L_reg balances foreground
             and background frequency.
-        objaware_bg_reg_weight (float): Background pixel weight when balancing
+        aux_bg_reg_weight (float): Background pixel weight when balancing
             is disabled.
-        objaware_dist_target_transform (str): Distance target transform,
+        aux_dist_target_transform (str): Distance target transform,
             'power' or 'exp'.
-        objaware_dist_target_power (float): Exponent a when transform='power'.
-        objaware_dist_target_exp_alpha (float): Alpha when transform='exp',
+        aux_dist_target_power (float): Exponent a when transform='power'.
+        aux_dist_target_exp_alpha (float): Alpha when transform='exp',
             mapping x to (exp(alpha*x)-1)/(exp(alpha)-1).
-        objaware_warmup_iters (int): Linear warmup iterations for the
+        aux_warmup_iters (int): Linear warmup iterations for the
             distance/embedding terms; 0 disables warmup.
-        objaware_boundary_hidden_channels (int): Hidden channels of the boundary branch.
-        objaware_boundary_loss_weight (float): Boundary loss weight; 0 disables the branch.
-        objaware_boundary_width (int): Boundary band width.
-        objaware_boundary_width_is_input (bool): If True, the band width is
+        aux_boundary_hidden_channels (int): Hidden channels of the boundary branch.
+        aux_boundary_loss_weight (float): Boundary loss weight; 0 disables the branch.
+        aux_boundary_width (int): Boundary band width.
+        aux_boundary_width_is_input (bool): If True, the band width is
             given in input-image pixels.
-        objaware_boundary_pos_weight (float): Positive-class weight of the boundary BCE.
-        objaware_boundary_warmup_iters (int): Warmup iterations of the boundary branch.
-        objaware_boundary_loss_type (str): Boundary loss type, 'bce' or 'focal'.
-        objaware_boundary_focal_gamma (float): Boundary focal gamma.
-        objaware_boundary_focal_alpha (float): Boundary focal alpha.
-        objaware_boundary_suppress_infer (bool): Whether to apply boundary
+        aux_boundary_pos_weight (float): Positive-class weight of the boundary BCE.
+        aux_boundary_warmup_iters (int): Warmup iterations of the boundary branch.
+        aux_boundary_loss_type (str): Boundary loss type, 'bce' or 'focal'.
+        aux_boundary_focal_gamma (float): Boundary focal gamma.
+        aux_boundary_focal_alpha (float): Boundary focal alpha.
+        aux_boundary_suppress_infer (bool): Whether to apply boundary
             suppression at inference time.
-        objaware_boundary_suppress_gamma (float): Strength of the boundary
+        aux_boundary_suppress_gamma (float): Strength of the boundary
             suppression at inference time.
-        objaware_export_map (bool): Whether to export the objaware maps at inference time.
+        aux_export_map (bool): Whether to export the aux maps at inference time.
     """
 
     def __init__(self,
                  *args,
-                 objaware_embedding_dim: int = 16,
-                 objaware_hidden_channels: int = 32,
-                 lambda_objaware_reg: float = 1.0,
-                 lambda_objaware_emb: float = 5.0,
-                 lambda_objaware_dis: float = 1.0,
+                 aux_embedding_dim: int = 16,
+                 aux_hidden_channels: int = 32,
+                 lambda_aux_reg: float = 1.0,
+                 lambda_aux_emb: float = 5.0,
+                 lambda_aux_dis: float = 1.0,
                  neighbor_distance: float = 10.0,
                  neighbor_distance_is_input: bool = True,
-                 objaware_local_constraint: bool = True,
-                 objaware_same_class_only: bool = False,
-                 objaware_include_background: bool = False,
-                 objaware_min_instance_pixels: int = 4,
-                 objaware_balance_reg_fg_bg: bool = True,
-                 objaware_bg_reg_weight: float = 1.0,
-                 objaware_dist_target_transform: str = 'power',
-                 objaware_dist_target_power: float = 1.0,
-                 objaware_dist_target_exp_alpha: float = 3.0,
-                 objaware_warmup_iters: int = 0,
-                 objaware_boundary_hidden_channels: int = 32,
-                 objaware_boundary_loss_weight: float = 0.0,
-                 objaware_boundary_width: int = 2,
-                 objaware_boundary_width_is_input: bool = False,
-                 objaware_boundary_pos_weight: float = 1.0,
-                 objaware_boundary_warmup_iters: int = 0,
-                 objaware_boundary_loss_type: str = 'bce',
-                 objaware_boundary_focal_gamma: float = 2.0,
-                 objaware_boundary_focal_alpha: float = 0.25,
-                 objaware_boundary_suppress_infer: bool = False,
-                 objaware_boundary_suppress_gamma: float = 0.5,
-                 objaware_export_map: bool = False,
+                 aux_local_constraint: bool = True,
+                 aux_same_class_only: bool = False,
+                 aux_include_background: bool = False,
+                 aux_min_instance_pixels: int = 4,
+                 aux_balance_reg_fg_bg: bool = True,
+                 aux_bg_reg_weight: float = 1.0,
+                 aux_dist_target_transform: str = 'power',
+                 aux_dist_target_power: float = 1.0,
+                 aux_dist_target_exp_alpha: float = 3.0,
+                 aux_warmup_iters: int = 0,
+                 aux_boundary_hidden_channels: int = 32,
+                 aux_boundary_loss_weight: float = 0.0,
+                 aux_boundary_width: int = 2,
+                 aux_boundary_width_is_input: bool = False,
+                 aux_boundary_pos_weight: float = 1.0,
+                 aux_boundary_warmup_iters: int = 0,
+                 aux_boundary_loss_type: str = 'bce',
+                 aux_boundary_focal_gamma: float = 2.0,
+                 aux_boundary_focal_alpha: float = 0.25,
+                 aux_boundary_suppress_infer: bool = False,
+                 aux_boundary_suppress_gamma: float = 0.5,
+                 aux_export_map: bool = False,
                  **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
-        self.objaware_embedding_dim = objaware_embedding_dim
-        self.objaware_hidden_channels = objaware_hidden_channels
-        self.lambda_objaware_reg = lambda_objaware_reg
-        self.lambda_objaware_emb = lambda_objaware_emb
-        self.lambda_objaware_dis = lambda_objaware_dis
+        self.aux_embedding_dim = aux_embedding_dim
+        self.aux_hidden_channels = aux_hidden_channels
+        self.lambda_aux_reg = lambda_aux_reg
+        self.lambda_aux_emb = lambda_aux_emb
+        self.lambda_aux_dis = lambda_aux_dis
         self.neighbor_distance = neighbor_distance
         self.neighbor_distance_is_input = neighbor_distance_is_input
-        self.objaware_local_constraint = objaware_local_constraint
-        self.objaware_same_class_only = objaware_same_class_only
-        self.objaware_include_background = objaware_include_background
-        self.objaware_min_instance_pixels = objaware_min_instance_pixels
-        self.objaware_balance_reg_fg_bg = objaware_balance_reg_fg_bg
-        self.objaware_bg_reg_weight = objaware_bg_reg_weight
-        self.objaware_dist_target_transform = str(objaware_dist_target_transform).lower()
-        if self.objaware_dist_target_transform not in {'power', 'exp'}:
-            raise ValueError('objaware_dist_target_transform must be "power" or "exp"')
-        self.objaware_dist_target_power = float(objaware_dist_target_power)
-        if self.objaware_dist_target_power <= 0:
-            raise ValueError('objaware_dist_target_power must be > 0')
-        self.objaware_dist_target_exp_alpha = float(objaware_dist_target_exp_alpha)
-        if self.objaware_dist_target_exp_alpha <= 0:
-            raise ValueError('objaware_dist_target_exp_alpha must be > 0')
-        self.objaware_warmup_iters = objaware_warmup_iters
+        self.aux_local_constraint = aux_local_constraint
+        self.aux_same_class_only = aux_same_class_only
+        self.aux_include_background = aux_include_background
+        self.aux_min_instance_pixels = aux_min_instance_pixels
+        self.aux_balance_reg_fg_bg = aux_balance_reg_fg_bg
+        self.aux_bg_reg_weight = aux_bg_reg_weight
+        self.aux_dist_target_transform = str(aux_dist_target_transform).lower()
+        if self.aux_dist_target_transform not in {'power', 'exp'}:
+            raise ValueError('aux_dist_target_transform must be "power" or "exp"')
+        self.aux_dist_target_power = float(aux_dist_target_power)
+        if self.aux_dist_target_power <= 0:
+            raise ValueError('aux_dist_target_power must be > 0')
+        self.aux_dist_target_exp_alpha = float(aux_dist_target_exp_alpha)
+        if self.aux_dist_target_exp_alpha <= 0:
+            raise ValueError('aux_dist_target_exp_alpha must be > 0')
+        self.aux_warmup_iters = aux_warmup_iters
 
-        self.objaware_boundary_hidden_channels = int(objaware_boundary_hidden_channels)
-        self.objaware_boundary_loss_weight = float(objaware_boundary_loss_weight)
-        self.objaware_boundary_width = int(objaware_boundary_width)
-        self.objaware_boundary_width_is_input = bool(objaware_boundary_width_is_input)
-        self.objaware_boundary_pos_weight = float(objaware_boundary_pos_weight)
-        self.objaware_boundary_warmup_iters = int(objaware_boundary_warmup_iters)
-        self.objaware_boundary_loss_type = str(objaware_boundary_loss_type).lower()
-        self.objaware_boundary_focal_gamma = float(objaware_boundary_focal_gamma)
-        self.objaware_boundary_focal_alpha = float(objaware_boundary_focal_alpha)
-        self.objaware_boundary_suppress_infer = bool(objaware_boundary_suppress_infer)
-        self.objaware_boundary_suppress_gamma = float(objaware_boundary_suppress_gamma)
+        self.aux_boundary_hidden_channels = int(aux_boundary_hidden_channels)
+        self.aux_boundary_loss_weight = float(aux_boundary_loss_weight)
+        self.aux_boundary_width = int(aux_boundary_width)
+        self.aux_boundary_width_is_input = bool(aux_boundary_width_is_input)
+        self.aux_boundary_pos_weight = float(aux_boundary_pos_weight)
+        self.aux_boundary_warmup_iters = int(aux_boundary_warmup_iters)
+        self.aux_boundary_loss_type = str(aux_boundary_loss_type).lower()
+        self.aux_boundary_focal_gamma = float(aux_boundary_focal_gamma)
+        self.aux_boundary_focal_alpha = float(aux_boundary_focal_alpha)
+        self.aux_boundary_suppress_infer = bool(aux_boundary_suppress_infer)
+        self.aux_boundary_suppress_gamma = float(aux_boundary_suppress_gamma)
 
-        if self.objaware_boundary_loss_type not in {'bce', 'focal'}:
-            raise ValueError('objaware_boundary_loss_type must be "bce" or "focal"')
+        if self.aux_boundary_loss_type not in {'bce', 'focal'}:
+            raise ValueError('aux_boundary_loss_type must be "bce" or "focal"')
 
-        self.objaware_export_map = bool(objaware_export_map)
+        self.aux_export_map = bool(aux_export_map)
 
         # Auxiliary prediction branch from mask feature (B, num_prototypes, H, W)
-        self.objaware_proj = nn.Sequential(
+        self.aux_proj = nn.Sequential(
             ConvModule(
                 self.num_prototypes,
-                self.objaware_hidden_channels,
+                self.aux_hidden_channels,
                 3,
                 padding=1,
                 norm_cfg=self.norm_cfg,
                 act_cfg=self.act_cfg),
             ConvModule(
-                self.objaware_hidden_channels,
-                self.objaware_hidden_channels,
+                self.aux_hidden_channels,
+                self.aux_hidden_channels,
                 3,
                 padding=1,
                 norm_cfg=self.norm_cfg,
                 act_cfg=self.act_cfg),
         )
-        self.objaware_emb_head = nn.Conv2d(self.objaware_hidden_channels,
-                                           self.objaware_embedding_dim, 1)
-        self.objaware_dist_head = nn.Conv2d(self.objaware_hidden_channels, 1, 1)
+        self.aux_emb_head = nn.Conv2d(self.aux_hidden_channels,
+                                           self.aux_embedding_dim, 1)
+        self.aux_dist_head = nn.Conv2d(self.aux_hidden_channels, 1, 1)
 
-        self.objaware_boundary_proj = nn.Sequential(
+        self.aux_boundary_proj = nn.Sequential(
             ConvModule(
                 self.num_prototypes,
-                self.objaware_boundary_hidden_channels,
+                self.aux_boundary_hidden_channels,
                 3,
                 padding=1,
                 norm_cfg=self.norm_cfg,
                 act_cfg=self.act_cfg),
             ConvModule(
-                self.objaware_boundary_hidden_channels,
-                self.objaware_boundary_hidden_channels,
+                self.aux_boundary_hidden_channels,
+                self.aux_boundary_hidden_channels,
                 3,
                 padding=1,
                 norm_cfg=self.norm_cfg,
                 act_cfg=self.act_cfg),
         )
-        self.objaware_boundary_head = nn.Conv2d(self.objaware_boundary_hidden_channels, 1, 1)
+        self.aux_boundary_head = nn.Conv2d(self.aux_boundary_hidden_channels, 1, 1)
 
         # Iteration counters used by the warmup schedules
-        self.register_buffer('_objaware_iter',
+        self.register_buffer('_aux_iter',
                              torch.tensor(0, dtype=torch.long),
                              persistent=True)
-        self.register_buffer('_objaware_boundary_iter',
+        self.register_buffer('_aux_boundary_iter',
                              torch.tensor(0, dtype=torch.long),
                              persistent=True)
+
+    def _load_from_state_dict(self, state_dict, prefix, *args, **kwargs):
+        """Accept checkpoints that still use the legacy ``objaware_`` prefix."""
+        legacy = [k for k in state_dict if k.startswith(prefix) and 'objaware' in k]
+        for key in legacy:
+            state_dict[key.replace('objaware', 'aux')] = state_dict.pop(key)
+        return super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
 
     def loss_by_feat(self,
                      cls_scores: List[Tensor],
@@ -226,7 +233,7 @@ class MORIObjectAwareRTMDetInsSepBNHead(RTMDetInsSepBNHead):
                      batch_gt_instances: InstanceList,
                      batch_img_metas: List[dict],
                      batch_gt_instances_ignore: OptInstanceList = None):
-        """Compute RTMDet-Ins base losses + object-aware auxiliary loss."""
+        """Compute RTMDet-Ins base losses + auxiliary auxiliary loss."""
         losses = super().loss_by_feat(
             cls_scores,
             bbox_preds,
@@ -236,35 +243,35 @@ class MORIObjectAwareRTMDetInsSepBNHead(RTMDetInsSepBNHead):
             batch_img_metas,
             batch_gt_instances_ignore)
 
-        objaware = self._compute_object_aware_loss(mask_feat, batch_gt_instances)
-        losses.update(objaware)
+        aux = self._compute_object_aware_loss(mask_feat, batch_gt_instances)
+        losses.update(aux)
         return losses
 
     def _compute_object_aware_loss(self, mask_feat: Tensor,
                                    batch_gt_instances: InstanceList) -> Dict[str, Tensor]:
-        """Compute object-aware auxiliary losses on mask feature map."""
-        self._objaware_iter += 1
-        if self.objaware_warmup_iters > 0:
-            warmup = min(self._objaware_iter.item() / float(self.objaware_warmup_iters),
+        """Compute auxiliary auxiliary losses on mask feature map."""
+        self._aux_iter += 1
+        if self.aux_warmup_iters > 0:
+            warmup = min(self._aux_iter.item() / float(self.aux_warmup_iters),
                          1.0)
         else:
             warmup = 1.0
 
-        self._objaware_boundary_iter += 1
-        if self.objaware_boundary_warmup_iters > 0:
+        self._aux_boundary_iter += 1
+        if self.aux_boundary_warmup_iters > 0:
             boundary_warmup = min(
-                self._objaware_boundary_iter.item()
-                / float(self.objaware_boundary_warmup_iters), 1.0)
+                self._aux_boundary_iter.item()
+                / float(self.aux_boundary_warmup_iters), 1.0)
         else:
             boundary_warmup = 1.0
 
         # Auxiliary predictions
-        aux_feat = self.objaware_proj(mask_feat.float())
-        emb_pred = self.objaware_emb_head(aux_feat)
+        aux_feat = self.aux_proj(mask_feat.float())
+        emb_pred = self.aux_emb_head(aux_feat)
         emb_pred = F.normalize(emb_pred, p=2, dim=1, eps=1e-6)
-        dist_pred = F.relu(self.objaware_dist_head(aux_feat).squeeze(1))
-        boundary_logits = self.objaware_boundary_head(
-            self.objaware_boundary_proj(mask_feat.float())).squeeze(1)
+        dist_pred = F.relu(self.aux_dist_head(aux_feat).squeeze(1))
+        boundary_logits = self.aux_boundary_head(
+            self.aux_boundary_proj(mask_feat.float())).squeeze(1)
 
         B, _, H, W = emb_pred.shape
         device = emb_pred.device
@@ -282,15 +289,15 @@ class MORIObjectAwareRTMDetInsSepBNHead(RTMDetInsSepBNHead):
             neigh_radius = int(round(self.neighbor_distance))
         neigh_radius = max(1, neigh_radius)
 
-        if self.objaware_boundary_width_is_input:
-            boundary_width = int(round(self.objaware_boundary_width / max(stride, 1.0)))
+        if self.aux_boundary_width_is_input:
+            boundary_width = int(round(self.aux_boundary_width / max(stride, 1.0)))
         else:
-            boundary_width = int(round(self.objaware_boundary_width))
+            boundary_width = int(round(self.aux_boundary_width))
         boundary_width = max(0, boundary_width)
 
         boundary_pos_weight = None
-        if self.objaware_boundary_pos_weight != 1.0:
-            boundary_pos_weight = boundary_logits.new_tensor(self.objaware_boundary_pos_weight)
+        if self.aux_boundary_pos_weight != 1.0:
+            boundary_pos_weight = boundary_logits.new_tensor(self.aux_boundary_pos_weight)
 
         for b in range(B):
             gt_instances = batch_gt_instances[b]
@@ -331,7 +338,7 @@ class MORIObjectAwareRTMDetInsSepBNHead(RTMDetInsSepBNHead):
                 mode='nearest').squeeze(1) > 0.5
 
             # filter tiny instances to reduce noisy supervision
-            valid = ds_masks.flatten(1).sum(dim=1) >= self.objaware_min_instance_pixels
+            valid = ds_masks.flatten(1).sum(dim=1) >= self.aux_min_instance_pixels
             all_labels = gt_instances.labels.to(device=device)
             if valid.any():
                 ds_masks = ds_masks[valid]
@@ -402,7 +409,7 @@ class MORIObjectAwareRTMDetInsSepBNHead(RTMDetInsSepBNHead):
                 self._distance_regression_loss(
                     dist_pred[b], dist_target, fg_mask, bg_mask))
 
-            if self.objaware_boundary_loss_weight > 0:
+            if self.aux_boundary_loss_weight > 0:
                 boundary_target = self._build_boundary_target(active_masks, boundary_width)
                 boundary_losses.append(
                     self._boundary_supervision_loss(
@@ -413,11 +420,11 @@ class MORIObjectAwareRTMDetInsSepBNHead(RTMDetInsSepBNHead):
                 boundary_losses.append(sample_zero)
 
             # embedding consistency + discriminative
-            emb_flat = emb_pred[b].permute(1, 2, 0).reshape(-1, self.objaware_embedding_dim)
+            emb_flat = emb_pred[b].permute(1, 2, 0).reshape(-1, self.aux_embedding_dim)
             emb_flat = F.normalize(emb_flat, p=2, dim=1, eps=1e-6)
             inst_flat = inst_map_compact.reshape(-1)
 
-            if self.objaware_include_background:
+            if self.aux_include_background:
                 # background as an additional object id = num_inst
                 use_ids = inst_flat.clone()
                 use_ids[use_ids < 0] = num_inst
@@ -458,8 +465,8 @@ class MORIObjectAwareRTMDetInsSepBNHead(RTMDetInsSepBNHead):
                     ds_masks=active_masks,
                     labels=active_labels,
                     radius=neigh_radius,
-                    local_only=self.objaware_local_constraint,
-                    same_class_only=self.objaware_same_class_only)
+                    local_only=self.aux_local_constraint,
+                    same_class_only=self.aux_same_class_only)
 
                 dis_added = False
 
@@ -470,7 +477,7 @@ class MORIObjectAwareRTMDetInsSepBNHead(RTMDetInsSepBNHead):
                     dis_added = True
 
                 # optional background-object orthogonality
-                if self.objaware_include_background and len(means) == (num_inst + 1):
+                if self.aux_include_background and len(means) == (num_inst + 1):
                     bg_mean = means[-1]
                     bg_abs_cos = torch.abs(fg_means @ bg_mean)
                     if bg_abs_cos.numel() > 0:
@@ -488,26 +495,26 @@ class MORIObjectAwareRTMDetInsSepBNHead(RTMDetInsSepBNHead):
         dis_val = torch.stack(dis_losses).mean() if len(dis_losses) > 0 else zero
         boundary_val = torch.stack(boundary_losses).mean() if len(boundary_losses) > 0 else zero
 
-        total = self.lambda_objaware_reg * reg_val + self.lambda_objaware_emb * (
-            con_val + self.lambda_objaware_dis * dis_val)
+        total = self.lambda_aux_reg * reg_val + self.lambda_aux_emb * (
+            con_val + self.lambda_aux_dis * dis_val)
         total = total * warmup
 
-        loss_objaware_boundary = (
+        loss_aux_boundary = (
             boundary_val
-            * self.objaware_boundary_loss_weight
+            * self.aux_boundary_loss_weight
             * boundary_warmup)
-        loss_objaware_boundary = torch.nan_to_num(
-            loss_objaware_boundary, nan=0.0, posinf=1.0, neginf=0.0)
+        loss_aux_boundary = torch.nan_to_num(
+            loss_aux_boundary, nan=0.0, posinf=1.0, neginf=0.0)
 
         return {
-            'loss_objaware': total,
-            'loss_objaware_boundary': loss_objaware_boundary,
-            'objaware_reg_val': reg_val.detach(),
-            'objaware_con_val': con_val.detach(),
-            'objaware_dis_val': dis_val.detach(),
-            'objaware_boundary_val': boundary_val.detach(),
-            'objaware_warmup': reg_val.new_tensor(warmup),
-            'objaware_boundary_warmup': reg_val.new_tensor(boundary_warmup),
+            'loss_aux': total,
+            'loss_aux_boundary': loss_aux_boundary,
+            'aux_reg_val': reg_val.detach(),
+            'aux_con_val': con_val.detach(),
+            'aux_dis_val': dis_val.detach(),
+            'aux_boundary_val': boundary_val.detach(),
+            'aux_warmup': reg_val.new_tensor(warmup),
+            'aux_boundary_warmup': reg_val.new_tensor(boundary_warmup),
         }
 
     def _boundary_supervision_loss(self,
@@ -515,7 +522,7 @@ class MORIObjectAwareRTMDetInsSepBNHead(RTMDetInsSepBNHead):
                                    target: Tensor,
                                    pos_weight: Optional[Tensor] = None) -> Tensor:
         """Boundary supervision loss: BCE or focal BCE."""
-        if self.objaware_boundary_loss_type == 'bce':
+        if self.aux_boundary_loss_type == 'bce':
             return F.binary_cross_entropy_with_logits(
                 logits,
                 target,
@@ -531,10 +538,10 @@ class MORIObjectAwareRTMDetInsSepBNHead(RTMDetInsSepBNHead):
         prob = torch.sigmoid(logits)
         p_t = prob * target + (1.0 - prob) * (1.0 - target)
         alpha_t = (
-            self.objaware_boundary_focal_alpha * target
-            + (1.0 - self.objaware_boundary_focal_alpha) * (1.0 - target)
+            self.aux_boundary_focal_alpha * target
+            + (1.0 - self.aux_boundary_focal_alpha) * (1.0 - target)
         )
-        focal_weight = alpha_t * (1.0 - p_t).pow(self.objaware_boundary_focal_gamma)
+        focal_weight = alpha_t * (1.0 - p_t).pow(self.aux_boundary_focal_gamma)
         return (focal_weight * bce).mean()
 
     @staticmethod
@@ -557,23 +564,23 @@ class MORIObjectAwareRTMDetInsSepBNHead(RTMDetInsSepBNHead):
             feat_map = feat_map[..., :ori_h, :ori_w]
         return feat_map
 
-    def _predict_objaware_map(self,
+    def _predict_aux_map(self,
                               mask_feat: Tensor,
                               img_meta: Optional[dict],
                               rescale: bool = False) -> Tensor:
         """Predict distance map for inference/export. Returns (H, W)."""
-        aux_feat = self.objaware_proj(mask_feat.unsqueeze(0).float())
-        dist_map = F.relu(self.objaware_dist_head(aux_feat))
+        aux_feat = self.aux_proj(mask_feat.unsqueeze(0).float())
+        dist_map = F.relu(self.aux_dist_head(aux_feat))
         stride = self.prior_generator.strides[0][0]
         return self._upsample_to_image(dist_map, stride, img_meta, rescale).squeeze(0).squeeze(0)
 
-    def _predict_objaware_embedding_map(self,
+    def _predict_aux_embedding_map(self,
                                         mask_feat: Tensor,
                                         img_meta: Optional[dict],
                                         rescale: bool = False) -> Tensor:
         """Predict embedding map for inference/export. Returns (D, H, W)."""
-        aux_feat = self.objaware_proj(mask_feat.unsqueeze(0).float())
-        emb_map = F.normalize(self.objaware_emb_head(aux_feat), p=2, dim=1, eps=1e-6)
+        aux_feat = self.aux_proj(mask_feat.unsqueeze(0).float())
+        emb_map = F.normalize(self.aux_emb_head(aux_feat), p=2, dim=1, eps=1e-6)
         stride = self.prior_generator.strides[0][0]
         return self._upsample_to_image(emb_map, stride, img_meta, rescale).squeeze(0)
 
@@ -582,8 +589,8 @@ class MORIObjectAwareRTMDetInsSepBNHead(RTMDetInsSepBNHead):
                               img_meta: Optional[dict],
                               rescale: bool = False) -> Tensor:
         """Predict boundary probability map for inference/export. Returns (H, W)."""
-        boundary_map = torch.sigmoid(self.objaware_boundary_head(
-            self.objaware_boundary_proj(mask_feat.unsqueeze(0).float())))
+        boundary_map = torch.sigmoid(self.aux_boundary_head(
+            self.aux_boundary_proj(mask_feat.unsqueeze(0).float())))
         stride = self.prior_generator.strides[0][0]
         return self._upsample_to_image(boundary_map, stride, img_meta,
                                        rescale).squeeze(0).squeeze(0)
@@ -640,7 +647,7 @@ class MORIObjectAwareRTMDetInsSepBNHead(RTMDetInsSepBNHead):
                     mode='bilinear',
                     align_corners=False)[..., :ori_h, :ori_w]
 
-            if self.objaware_boundary_suppress_infer and self.objaware_boundary_suppress_gamma > 0:
+            if self.aux_boundary_suppress_infer and self.aux_boundary_suppress_gamma > 0:
                 if boundary_map is None:
                     boundary_map = self._predict_boundary_map(
                         mask_feat, img_meta, rescale=rescale)
@@ -651,7 +658,7 @@ class MORIObjectAwareRTMDetInsSepBNHead(RTMDetInsSepBNHead):
                         size=mask_logits.shape[-2:],
                         mode='bilinear',
                         align_corners=False)
-                mask_logits = mask_logits - self.objaware_boundary_suppress_gamma * boundary_prob
+                mask_logits = mask_logits - self.aux_boundary_suppress_gamma * boundary_prob
 
             masks = mask_logits.sigmoid().squeeze(0)
             masks = masks > cfg.mask_thr_binary
@@ -664,26 +671,26 @@ class MORIObjectAwareRTMDetInsSepBNHead(RTMDetInsSepBNHead):
                 dtype=torch.bool,
                 device=results.bboxes.device)
 
-        if self.objaware_export_map:
+        if self.aux_export_map:
             with torch.no_grad():
-                obj_map = self._predict_objaware_map(mask_feat, img_meta, rescale=rescale)
-                emb_map = self._predict_objaware_embedding_map(
+                obj_map = self._predict_aux_map(mask_feat, img_meta, rescale=rescale)
+                emb_map = self._predict_aux_embedding_map(
                     mask_feat, img_meta, rescale=rescale)
                 if boundary_map is None:
                     boundary_map = self._predict_boundary_map(mask_feat, img_meta, rescale=rescale)
             export_dict = {
-                'objaware_map': obj_map.detach(),
-                'objaware_map_kind': 'distance',
-                'objaware_embedding_map': emb_map.detach(),
-                'objaware_boundary_map': boundary_map.detach(),
+                'aux_map': obj_map.detach(),
+                'aux_map_kind': 'distance',
+                'aux_embedding_map': emb_map.detach(),
+                'aux_boundary_map': boundary_map.detach(),
             }
             if hasattr(results, 'set_metainfo'):
                 results.set_metainfo(export_dict)
             else:
-                results.objaware_map = export_dict['objaware_map']
-                results.objaware_map_kind = export_dict['objaware_map_kind']
-                results.objaware_embedding_map = export_dict['objaware_embedding_map']
-                results.objaware_boundary_map = export_dict['objaware_boundary_map']
+                results.aux_map = export_dict['aux_map']
+                results.aux_map_kind = export_dict['aux_map_kind']
+                results.aux_embedding_map = export_dict['aux_embedding_map']
+                results.aux_boundary_map = export_dict['aux_boundary_map']
 
         return results
 
@@ -696,7 +703,7 @@ class MORIObjectAwareRTMDetInsSepBNHead(RTMDetInsSepBNHead):
         sq = (pred - target).pow(2)
         weights = torch.ones_like(sq)
 
-        if self.objaware_balance_reg_fg_bg:
+        if self.aux_balance_reg_fg_bg:
             num_fg = int(fg_mask.sum().item())
             num_bg = int(bg_mask.sum().item())
             if num_fg > 0 and num_bg > 0:
@@ -709,7 +716,7 @@ class MORIObjectAwareRTMDetInsSepBNHead(RTMDetInsSepBNHead):
             else:
                 weights[bg_mask] = 1.0 / max(num_bg, 1)
         else:
-            weights[bg_mask] = self.objaware_bg_reg_weight
+            weights[bg_mask] = self.aux_bg_reg_weight
 
         return (sq * weights).sum() / (weights.sum() + 1e-6)
 
@@ -724,16 +731,16 @@ class MORIObjectAwareRTMDetInsSepBNHead(RTMDetInsSepBNHead):
         if max_dist > 0:
             dist = dist / max_dist
         dist = np.clip(dist, 0.0, 1.0)
-        if self.objaware_dist_target_transform == 'exp':
-            alpha = float(self.objaware_dist_target_exp_alpha)
+        if self.aux_dist_target_transform == 'exp':
+            alpha = float(self.aux_dist_target_exp_alpha)
             denom = np.expm1(alpha)
             if np.abs(denom) < 1e-12:
                 dist = dist.astype(np.float32, copy=False)
             else:
                 dist = (np.expm1(alpha * dist) / denom).astype(np.float32, copy=False)
         else:
-            if self.objaware_dist_target_power != 1.0:
-                dist = np.power(dist, self.objaware_dist_target_power).astype(np.float32, copy=False)
+            if self.aux_dist_target_power != 1.0:
+                dist = np.power(dist, self.aux_dist_target_power).astype(np.float32, copy=False)
         return torch.from_numpy(dist).to(mask.device, dtype=torch.float32)
 
     def _build_discriminative_mask(self,
