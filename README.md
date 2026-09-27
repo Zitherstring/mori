@@ -1,6 +1,6 @@
-# MORI-seg: Object-Aware RTMDet-Ins for Renal Pathology Instance Segmentation
+# MORI-Seg: Learning Morphological Geometry for Instance Segmentation without Instance Annotations
 
-MORI-seg is an instance segmentation model for renal pathology: RTMDet-Ins-L extended with Object-Aware auxiliary branches (distance / embedding / boundary band), implemented as an **MMDetection plugin**. <br />
+MORI-Seg is an instance segmentation model for renal pathology. It learns morphological geometry and instance disentanglement through training-only branches on top of RTMDet-Ins, and is implemented as an **MMDetection plugin**. <br />
 
 ![Method](icon/methodv4.png)<br />
 
@@ -11,7 +11,7 @@ MORI-seg is an instance segmentation model for renal pathology: RTMDet-Ins-L ext
 
 ## Abstract
 
-Instance segmentation on renal pathology images is difficult because objects are dense and touching: tubules form connected sheets and peritubular capillaries are small and tightly packed, so neighbouring instances are easily merged into one. MORI-seg attaches two **training-only** branches to the instance mask predictor of RTMDet-Ins:
+Instance segmentation on renal pathology images is difficult because objects are dense and touching: tubules form connected sheets and peritubular capillaries are small and tightly packed, so neighbouring instances are easily merged into one. MORI-Seg attaches two **training-only** branches to the instance mask predictor of RTMDet-Ins:
 
 - **Instance Disentanglement Branch** — a per-pixel embedding head supervised by a cosine metric regularization `L_disentangle`, pulling pixels of one instance together and pushing neighbouring instances apart.
 - **Morphological Geometry Branch** — a distance head supervised by an exponentially reparameterized distance map (`L_dist`, balanced weighted MSE) and a boundary head supervised by the boundary band derived from the semantic mask (`L_boundary`, BCEWithLogits).
