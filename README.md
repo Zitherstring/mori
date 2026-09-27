@@ -37,13 +37,13 @@ mkdir -p checkpoint
 mv /path/to/Mori_seg.pth checkpoint/Mori_seg.pth
 ```
 
-**3. Point `TEST_ROOT` at the test set.** It must be COCO-format and laid out like this, where `test.json` lists the images to run on and `test_instance.json` holds the ground truth used for scoring:
+**3. Point `TEST_ROOT` at the test set.** It must be COCO-format and laid out as described in [Data](#data):
 
 ```
 $TEST_ROOT/
 ├── annotations/
-│   ├── test.json
-│   └── test_instance.json
+│   ├── test.json            # image list for inference
+│   └── test_instance.json   # ground truth for scoring
 └── images/test/
 ```
 
@@ -85,19 +85,78 @@ This repository **does not contain mmdetection itself** — it only provides the
 conda create -n mori-seg python=3.10 -y
 conda activate mori-seg
 
+# PyTorch matching your CUDA toolkit
 pip install torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cu118
 
+# OpenMMLab packages; mim picks a pre-built mmcv wheel when one matches your
+# torch/CUDA pair, and compiles it from source otherwise
 pip install -U openmim
 mim install mmengine==0.10.7
 mim install mmcv==2.1.0
 mim install mmdet==3.3.0
 
-pip install pycocotools opencv-python tqdm
+# remaining dependencies
+pip install -r requirements.txt
 ```
+
+Reference environment: Python 3.10.6, torch 2.1.0+cu118, torchvision 0.16.0+cu118, CUDA 11.8, cuDNN 8.7, mmengine 0.10.7, mmcv 2.1.0, mmdet 3.3.0, numpy 1.26.4, OpenCV 4.10.0, pycocotools 2.0.10.
 
 ## Model
 
 Download the pretrained weights from [Google Drive](https://drive.google.com/file/d/1ONy565n3-B7m-rDNknhQ_QtO2Na5E8X1/view?usp=drive_link) and place the file at `checkpoint/Mori_seg.pth`.
+
+## Data
+
+Both training and evaluation read COCO-format instance annotations. Segmentations may be polygons or RLE; the training pipeline keeps them as polygons (`poly2mask=False`).
+
+#### Classes
+
+The model is trained on six renal structures and evaluated on four, because two tubule subtypes are merged and the glomerular tuft is not part of the evaluation space:
+
+| Training class | Meaning | Evaluation class |
+|---|---|---|
+| `cap` | glomerular capsule | `non-globally-sclerotic_glomeruli` |
+| `dt` | distal tubule | `tubules` |
+| `pt` | proximal tubule | `tubules` |
+| `ptc` | peritubular capillary | `peritubular-capillaries` |
+| `tuft` | glomerular tuft | dropped |
+| `ves` | vessel / artery | `arteries_arterioles` |
+
+Training annotations use the six class names above, in this order (`category_id` 1-6). Evaluation ground truth uses the four evaluation class names. The mapping lives in `mori_seg/eval/category_spaces.json`.
+
+#### Training set
+
+```
+<data_root>/
+├── annotations/
+│   ├── train.json
+│   └── val.json
+├── train/images/
+└── val/images/
+```
+
+`data_root` is set in `configs/mori_seg.py`; `file_name` in each JSON is resolved relative to the matching `images/` directory. Images with no annotations, and images smaller than 32px, are skipped during training. Inputs are resized to 640x640 (`keep_ratio=True`) with padding.
+
+#### Test set
+
+```
+$TEST_ROOT/
+├── annotations/
+│   ├── test.json            # image list for inference
+│   └── test_instance.json   # ground truth for scoring
+└── images/test/
+```
+
+`test.json` only needs the `images` entries (`id`, `file_name`, `width`, `height`); `test_instance.json` additionally needs `annotations` and `categories` in the four-class space.
+
+#### Magnification
+
+Evaluation is magnification-aware: 10x images are scored for arteries, glomeruli and tubules, 40x images only for peritubular capillaries. The magnification is read from `file_name`, which must therefore encode it in one of two ways:
+
+- a prefix, `10x/...` or `40x/...`
+- a size suffix, `..._2048x2048.png` for 10x or `..._512x512.png` for 40x
+
+Anything else counts as `unknown` and is scored against all four classes.
 
 ## Training
 
@@ -154,6 +213,10 @@ We are grateful to the teams whose work this project builds on:
 - The [Kidney Precision Medicine Project (KPMP)](https://www.kpmp.org/) and its [Kidney Tissue Atlas](https://atlas.kpmp.org/), used for external evaluation.
 
 Our thanks go to the patients who contributed tissue, and to the investigators and annotators who made these resources openly available. We wish everyone building on them every success.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
 
 ## Citation
 

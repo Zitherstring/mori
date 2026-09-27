@@ -1,0 +1,18 @@
+# Pure-Python dependencies: pip install -r requirements.txt
+#
+# PyTorch and the OpenMMLab packages are NOT listed here, because both need
+# builds that match your CUDA toolkit. Install them first:
+#
+#   pip install torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cu118
+#   pip install -U openmim
+#   mim install mmengine==0.10.7
+#   mim install mmcv==2.1.0
+#   mim install mmdet==3.3.0
+#
+# mmcv ships pre-built wheels only for certain torch/CUDA pairs; with any other
+# pair mim compiles it from source, which takes a while.
+
+numpy<2          # torch 2.1 is not compatible with numpy 2
+opencv-python
+pycocotools
+tqdm
