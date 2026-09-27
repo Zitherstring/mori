@@ -127,8 +127,6 @@ $TEST_ROOT/
 └── images/test/
 ```
 
-`test.json` only needs the `images` entries (`id`, `file_name`, `width`, `height`); `test_instance.json` additionally needs `annotations` and `categories`.
-
 ## Training
 
 ```bash
