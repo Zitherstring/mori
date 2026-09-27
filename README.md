@@ -2,7 +2,7 @@
 
 MORI-Seg is an instance segmentation model for renal pathology. It learns morphological geometry and instance disentanglement through training-only branches on top of RTMDet-Ins, and is implemented as an **MMDetection plugin**. <br />
 
-![Method](icon/methodv4.png)<br />
+![Method](icon/method.png)<br />
 
 **MORI-Seg Paper** <br />
 > [MORI-Seg: Learning Morphological Geometry for Instance Segmentation without Instance Annotations](https://arxiv.org/abs/2605.28261) <br />
