@@ -25,7 +25,7 @@ Evaluating the released weights on a test set takes four steps.
 **1. Get the code and the environment.** See [Installation](#installation) for the full dependency list; in short, an MMDetection 3.3.0 environment.
 
 ```bash
-git clone <REPO_URL> MORI-seg
+git clone https://github.com/Zitherstring/mori.git MORI-seg
 cd MORI-seg
 conda activate mori-seg
 ```
@@ -97,7 +97,7 @@ pip install pycocotools opencv-python tqdm
 
 ## Model
 
-Download the pretrained weights from [Google Drive](<LINK>) and place the file at `checkpoint/Mori_seg.pth`.
+Download the pretrained weights from [Google Drive](https://drive.google.com/file/d/1ONy565n3-B7m-rDNknhQ_QtO2Na5E8X1/view?usp=drive_link) and place the file at `checkpoint/Mori_seg.pth`.
 
 ## Training
 
